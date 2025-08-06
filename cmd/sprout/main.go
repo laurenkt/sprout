@@ -9,6 +9,7 @@ import (
 	
 	"sprout/pkg/config"
 	"sprout/pkg/git"
+	"sprout/pkg/linear"
 	"sprout/pkg/ui"
 )
 
@@ -190,6 +191,26 @@ func handleDoctorCommand(cfg *config.Config) {
 			fmt.Println("Config File: exists")
 		}
 	}
+	
+	// Linear connectivity test
+	fmt.Println()
+	fmt.Println("Linear Integration")
+	fmt.Println("=================")
+	
+	if cfg.LinearAPIKey == "" {
+		fmt.Println("Linear API Key: not configured")
+		fmt.Println("Linear Status: disabled")
+	} else {
+		// Mask the key for security
+		maskedKey := cfg.LinearAPIKey
+		if len(maskedKey) > 8 {
+			maskedKey = maskedKey[:8] + "..." + maskedKey[len(maskedKey)-4:]
+		}
+		fmt.Printf("Linear API Key: %s\n", maskedKey)
+		
+		fmt.Print("Linear Status: testing connection... ")
+		testLinearConnection(cfg.LinearAPIKey)
+	}
 }
 
 func getConfigPath() (string, error) {
@@ -198,6 +219,28 @@ func getConfigPath() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%s/.sprout.json5", homeDir), nil
+}
+
+func testLinearConnection(apiKey string) {
+	client := linear.NewClient(apiKey)
+	
+	user, err := client.GetCurrentUser()
+	if err != nil {
+		fmt.Printf("❌ Failed\n")
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	
+	fmt.Printf("✅ Connected\n")
+	fmt.Printf("Linear User: %s (%s)\n", user.Name, user.Email)
+	
+	// Try to fetch assigned issues
+	issues, err := client.GetAssignedIssues()
+	if err != nil {
+		fmt.Printf("Assigned Issues: <error fetching: %v>\n", err)
+	} else {
+		fmt.Printf("Assigned Issues: %d active tickets\n", len(issues))
+	}
 }
 
 func printHelp() {

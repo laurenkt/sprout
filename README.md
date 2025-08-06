@@ -46,8 +46,8 @@ sprout create [branch-name]
 # Create worktree and run command in it
 sprout create [branch-name] [command] [args...]
 
-# One-shot with Linear ticket
-sprout create --linear [ticket-id]
+# Check configuration and connectivity
+sprout doctor
 ```
 
 ### Command Examples
@@ -81,29 +81,57 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
 
 ```json5
 {
-  // Command to run when sprout is called without arguments
-  // If not specified, defaults to interactive mode
-  "defaultCommand": "echo 'Welcome to Sprout!'",
+  // Command to run after creating a worktree in interactive mode
+  // If not specified, exits cleanly without running any command
+  "defaultCommand": "code .",
   
-  // Linear API key for ticket integration
-  "linearApiKey": "your-linear-api-key-here"
+  // Linear API key for issue tracking integration
+  // Get your key from Linear Settings > Account > Security & Access
+  "linearApiKey": "lin_api_YOUR_KEY_HERE"
 }
 ```
 
 ### Configuration Options
 
-- **`defaultCommand`**: Command to execute when `sprout` is called without arguments. If not specified, launches interactive mode.
-- **`linearApiKey`**: Your Linear API key for accessing tickets and creating branches from Linear issues.
+- **`defaultCommand`**: Command to execute after creating a worktree in interactive mode. Common examples:
+  - `"code ."` - Open in VS Code
+  - `"nvim"` - Open in Neovim
+  - `"bash"` - Start a new shell session
+  
+- **`linearApiKey`**: Your Linear personal API key for accessing Linear tickets. Required for Linear integration features.
 
 ### Linear Integration
 
-To use Linear integration features, you'll need to:
+When configured with a Linear API key, Sprout displays your assigned tickets in interactive mode:
 
-1. Get your Linear API key from [Linear Settings > API](https://linear.app/settings/api)
-2. Add it to your `~/.sprout.json5` configuration file
-3. Run `sprout doctor` to verify the configuration is working
+```
+🌱 Sprout - Create New Worktree
 
-The Linear API key enables:
-- Browsing and selecting tickets for worktree creation
-- Automatic branch name suggestions based on ticket titles
-- Creating subtasks directly from the terminal UI
+Enter branch name: │
+
+📋 Linear Tickets (Assigned to You):
+   ABC-123 - Implement user authentication
+   XYZ-456 - Fix database connection pooling
+   DEF-789 - Add unit tests for payment module
+
+Press Enter to create, Esc/Ctrl+C to quit
+```
+
+To get your Linear API key:
+1. Go to Linear Settings > Account > Security & Access
+2. Create a new personal API key
+3. Add it to your `~/.sprout.json5` configuration
+
+### Checking Configuration
+
+Use the `doctor` command to verify your configuration and test Linear connectivity:
+
+```bash
+sprout doctor
+```
+
+This will show:
+- Configuration file path and status
+- Default command setting
+- Linear API key (masked for security)
+- Linear connection status and user information
