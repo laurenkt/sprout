@@ -160,3 +160,94 @@ func validateBranchName(name string) error {
 	
 	return nil
 }
+
+func (wm *WorktreeManager) PruneWorktree(branchName string) error {
+	if err := validateBranchName(branchName); err != nil {
+		return err
+	}
+
+	worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", branchName)
+	
+	// Check if worktree exists
+	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+		return fmt.Errorf("worktree does not exist: %s", branchName)
+	}
+
+	// Remove worktree from git
+	cmd := exec.Command("git", "worktree", "remove", worktreePath, "--force")
+	cmd.Dir = wm.repoRoot
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// If git worktree remove fails, we still want to try to remove the directory
+		fmt.Printf("Warning: git worktree remove failed: %v\nOutput: %s\n", err, string(output))
+		fmt.Println("Attempting to remove directory manually...")
+	}
+
+	// Remove the directory and all its contents
+	if err := os.RemoveAll(worktreePath); err != nil {
+		return fmt.Errorf("failed to remove worktree directory: %w", err)
+	}
+
+	// Delete the branch if it exists and has no commits beyond the base
+	cmd = exec.Command("git", "branch", "-D", branchName)
+	cmd.Dir = wm.repoRoot
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// Branch deletion might fail if it doesn't exist or has unmerged changes
+		// This is not necessarily an error, so we just warn
+		fmt.Printf("Warning: failed to delete branch '%s': %v\nOutput: %s\n", branchName, err, string(output))
+	}
+
+	fmt.Printf("Worktree '%s' has been pruned successfully\n", branchName)
+	return nil
+}
+
+func (wm *WorktreeManager) PruneAllMerged() error {
+	worktrees, err := wm.ListWorktrees()
+	if err != nil {
+		return err
+	}
+
+	var mergedWorktrees []Worktree
+	for _, wt := range worktrees {
+		// Skip main/master branches and only include merged PRs
+		if (wt.Branch == "master" || wt.Branch == "main" || wt.Branch == "") {
+			continue
+		}
+		if wt.PRStatus == "Merged" {
+			// Check if worktree directory actually exists
+			worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", wt.Branch)
+			if _, err := os.Stat(worktreePath); err == nil {
+				mergedWorktrees = append(mergedWorktrees, wt)
+			}
+		}
+	}
+
+	if len(mergedWorktrees) == 0 {
+		fmt.Println("No merged worktrees found to prune")
+		return nil
+	}
+
+	fmt.Printf("Found %d merged worktree(s) to prune:\n", len(mergedWorktrees))
+	for _, wt := range mergedWorktrees {
+		fmt.Printf("  - %s\n", wt.Branch)
+	}
+	fmt.Println()
+
+	var failed []string
+	for _, wt := range mergedWorktrees {
+		fmt.Printf("Pruning %s...\n", wt.Branch)
+		if err := wm.PruneWorktree(wt.Branch); err != nil {
+			fmt.Printf("Failed to prune %s: %v\n", wt.Branch, err)
+			failed = append(failed, wt.Branch)
+		}
+	}
+
+	if len(failed) > 0 {
+		fmt.Printf("\nFailed to prune %d worktree(s): %s\n", len(failed), strings.Join(failed, ", "))
+		return fmt.Errorf("some worktrees could not be pruned")
+	}
+
+	fmt.Printf("\nSuccessfully pruned %d merged worktree(s)\n", len(mergedWorktrees))
+	return nil
+}
