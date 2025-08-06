@@ -59,6 +59,8 @@ func main() {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
+	case "doctor":
+		handleDoctorCommand(cfg)
 	case "help", "--help", "-h":
 		printHelp()
 	default:
@@ -152,6 +154,33 @@ func handleListCommand() error {
 	return nil
 }
 
+func handleDoctorCommand(cfg *config.Config) {
+	fmt.Println("Sprout Configuration")
+	fmt.Println("===================")
+	fmt.Printf("Default Command: %s\n", cfg.DefaultCommand)
+	
+	configPath, err := getConfigPath()
+	if err != nil {
+		fmt.Printf("Config Path: <error: %v>\n", err)
+	} else {
+		fmt.Printf("Config Path: %s\n", configPath)
+		
+		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+			fmt.Println("Config File: not found (using defaults)")
+		} else {
+			fmt.Println("Config File: exists")
+		}
+	}
+}
+
+func getConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/.sprout.json5", homeDir), nil
+}
+
 func printHelp() {
 	fmt.Println("Sprout - Git Worktree Terminal UI")
 	fmt.Println()
@@ -160,6 +189,7 @@ func printHelp() {
 	fmt.Println("  sprout list                         List all worktrees")
 	fmt.Println("  sprout create <branch>              Create worktree and output path")
 	fmt.Println("  sprout create <branch> <command>    Create worktree and run command in it")
+	fmt.Println("  sprout doctor                       Show configuration values")
 	fmt.Println("  sprout help                         Show this help")
 	fmt.Println()
 	fmt.Println("Examples:")
