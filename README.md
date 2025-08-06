@@ -43,9 +43,30 @@ sprout list
 # One-shot worktree creation
 sprout create [branch-name]
 
+# Create worktree and run command in it
+sprout create [branch-name] [command] [args...]
+
 # One-shot with Linear ticket
 sprout create --linear [ticket-id]
 ```
+
+### Command Examples
+
+```bash
+# Create worktree and change to it
+cd "$(sprout create mybranch)"
+
+# Create worktree and open in VS Code
+sprout create mybranch code .
+
+# Create worktree and start a shell
+sprout create mybranch bash
+
+# Create worktree and run git status
+sprout create mybranch git status
+```
+
+**Note**: When running commands with `sprout create`, the worktree directory is printed to stderr after command execution for easy reference.
 
 ## Requirements
 

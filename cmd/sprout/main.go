@@ -91,11 +91,13 @@ func handleCreateCommand(args []string) error {
 			if err := cmd.Run(); err != nil {
 				if exitError, ok := err.(*exec.ExitError); ok {
 					if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+						fmt.Fprintf(os.Stderr, "\nWorktree directory: %s\n", worktreePath)
 						os.Exit(status.ExitStatus())
 					}
 				}
 				return fmt.Errorf("default command failed: %w", err)
 			}
+			fmt.Fprintf(os.Stderr, "\nWorktree directory: %s\n", worktreePath)
 			return nil
 		}
 		
@@ -117,12 +119,14 @@ func handleCreateCommand(args []string) error {
 	if err := cmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+				fmt.Fprintf(os.Stderr, "\nWorktree directory: %s\n", worktreePath)
 				os.Exit(status.ExitStatus())
 			}
 		}
 		return fmt.Errorf("command failed: %w", err)
 	}
 	
+	fmt.Fprintf(os.Stderr, "\nWorktree directory: %s\n", worktreePath)
 	return nil
 }
 
