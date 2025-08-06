@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -212,4 +213,37 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 func (c *Client) TestConnection() error {
 	_, err := c.GetCurrentUser()
 	return err
+}
+
+// GetBranchName generates a branch name from an issue
+func (i *Issue) GetBranchName() string {
+	// Convert title to kebab-case, limit to reasonable length
+	title := strings.ToLower(i.Title)
+	title = strings.ReplaceAll(title, " ", "-")
+	title = strings.ReplaceAll(title, "_", "-")
+	
+	// Remove special characters except hyphens
+	var cleaned strings.Builder
+	for _, r := range title {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			cleaned.WriteRune(r)
+		}
+	}
+	title = cleaned.String()
+	
+	// Remove consecutive hyphens
+	for strings.Contains(title, "--") {
+		title = strings.ReplaceAll(title, "--", "-")
+	}
+	
+	// Trim hyphens from start/end
+	title = strings.Trim(title, "-")
+	
+	// Limit length (keeping identifier + reasonable title length)
+	if len(title) > 50 {
+		title = title[:50]
+		title = strings.Trim(title, "-")
+	}
+	
+	return fmt.Sprintf("%s-%s", strings.ToLower(i.Identifier), title)
 }
