@@ -16,8 +16,8 @@ import (
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("Warning: Failed to load config: %v\n", err)
-		cfg = config.DefaultConfig()
+		fmt.Printf("Error: Failed to load config: %v\n", err)
+		os.Exit(1)
 	}
 
 	if len(os.Args) < 2 {
@@ -76,8 +76,7 @@ func handleCreateCommand(args []string) error {
 	if len(args) == 1 {
 		cfg, err := config.Load()
 		if err != nil {
-			fmt.Printf("Warning: Failed to load config: %v\n", err)
-			cfg = config.DefaultConfig()
+			return fmt.Errorf("failed to load config: %w", err)
 		}
 		
 		defaultCmd := cfg.GetDefaultCommand()

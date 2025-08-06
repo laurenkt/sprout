@@ -45,6 +45,30 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	// First parse into a generic map to detect unknown keys
+	var rawConfig map[string]interface{}
+	if err := json5.Unmarshal(data, &rawConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Check for unknown keys
+	validKeys := map[string]bool{
+		"defaultCommand": true,
+		"linearApiKey":   true,
+	}
+
+	var unknownKeys []string
+	for key := range rawConfig {
+		if !validKeys[key] {
+			unknownKeys = append(unknownKeys, key)
+		}
+	}
+
+	if len(unknownKeys) > 0 {
+		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - linearApiKey: string (API key for Linear integration)", unknownKeys)
+	}
+
+	// Now parse into the actual config struct
 	if err := json5.Unmarshal(data, config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
