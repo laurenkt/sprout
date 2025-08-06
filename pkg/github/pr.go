@@ -41,9 +41,9 @@ func (c *Client) checkBranchStatusWithGit(branchName string) string {
 	cmd := exec.Command("git", "rev-parse", "--verify", "origin/"+branchName)
 	cmd.Dir = c.repoRoot
 	if err := cmd.Run(); err != nil {
-		// Remote branch doesn't exist - likely merged and deleted
-		// Check if commits from this branch exist in main/master
-		if c.isBranchMerged(branchName) {
+		// Remote branch doesn't exist - could be never pushed or merged and deleted
+		// Only check for "Merged" if we have evidence the branch was previously pushed
+		if c.wasBranchPushed(branchName) && c.isBranchMerged(branchName) {
 			return "Merged"
 		}
 		return "No PR"
@@ -90,8 +90,21 @@ func (c *Client) getMainBranch() string {
 	return "main" // Default fallback
 }
 
+func (c *Client) wasBranchPushed(branchName string) bool {
+	// Check git reflog for evidence the branch was pushed
+	cmd := exec.Command("git", "reflog", "--grep-reflog=origin/"+branchName, "--all", "--oneline")
+	cmd.Dir = c.repoRoot
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	
+	// If we find any reflog entries mentioning origin/branchName, it was pushed
+	return len(strings.TrimSpace(string(output))) > 0
+}
+
 func (c *Client) checkPRStatusWithGH(branchName string) string {
-	cmd := exec.Command("gh", "pr", "list", "--head", branchName, "--json", "state", "--limit", "1")
+	cmd := exec.Command("gh", "pr", "list", "--head", branchName, "--state", "all", "--json", "state", "--limit", "1")
 	cmd.Dir = c.repoRoot
 	
 	output, err := cmd.Output()
