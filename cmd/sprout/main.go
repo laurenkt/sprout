@@ -6,11 +6,39 @@ import (
 	"os/exec"
 	"syscall"
 	
+	"sprout/pkg/config"
 	"sprout/pkg/git"
 )
 
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Printf("Warning: Failed to load config: %v\n", err)
+		cfg = config.DefaultConfig()
+	}
+
 	if len(os.Args) < 2 {
+		// Check if there's a default command configured
+		defaultCmd := cfg.GetDefaultCommand()
+		if len(defaultCmd) > 0 {
+			// Execute the default command
+			cmd := exec.Command(defaultCmd[0], defaultCmd[1:]...)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			
+			if err := cmd.Run(); err != nil {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+						os.Exit(status.ExitStatus())
+					}
+				}
+				fmt.Printf("Default command failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		
 		// Interactive mode
 		fmt.Println("Starting Sprout in interactive mode...")
 		// TODO: Launch TUI
