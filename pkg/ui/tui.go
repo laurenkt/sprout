@@ -2,9 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"sprout/pkg/config"
 	"sprout/pkg/git"
 )
 
@@ -17,6 +21,7 @@ type model struct {
 	success         bool
 	errorMsg        string
 	result          string
+	worktreePath    string
 	worktreeManager *git.WorktreeManager
 }
 
@@ -35,6 +40,7 @@ func NewTUI() (model, error) {
 		success:         false,
 		errorMsg:        "",
 		result:          "",
+		worktreePath:    "",
 		worktreeManager: wm,
 	}, nil
 }
@@ -89,6 +95,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		m.success = true
 		m.result = fmt.Sprintf("Worktree created at: %s", msg.path)
+		// Store the path for later execution and quit the TUI
+		m.worktreePath = msg.path
 		return m, tea.Quit
 
 	case errMsg:
@@ -112,6 +120,7 @@ func (m model) createWorktree() tea.Cmd {
 		return worktreeCreatedMsg{branchName, worktreePath}
 	}
 }
+
 
 type errMsg struct {
 	err error
@@ -157,12 +166,43 @@ func (m model) View() string {
 }
 
 func RunInteractive() error {
-	model, err := NewTUI()
+	m, err := NewTUI()
 	if err != nil {
 		return err
 	}
 
-	p := tea.NewProgram(model)
-	_, err = p.Run()
-	return err
+	p := tea.NewProgram(m)
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+
+	// After TUI exits, check if we need to execute a default command
+	if resultModel, ok := finalModel.(model); ok && resultModel.success && resultModel.worktreePath != "" {
+		cfg, err := config.Load()
+		if err != nil {
+			cfg = config.DefaultConfig()
+		}
+		
+		defaultCmd := cfg.GetDefaultCommand()
+		if len(defaultCmd) > 0 {
+			// Execute the default command in the worktree directory
+			cmd := exec.Command(defaultCmd[0], defaultCmd[1:]...)
+			cmd.Dir = resultModel.worktreePath
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			
+			if err := cmd.Run(); err != nil {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+						os.Exit(status.ExitStatus())
+					}
+				}
+				os.Exit(1)
+			}
+		}
+	}
+
+	return nil
 }
