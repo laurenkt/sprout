@@ -168,6 +168,12 @@ func handleDoctorCommand(cfg *config.Config) {
 	fmt.Println("===================")
 	fmt.Printf("Default Command: %s\n", cfg.DefaultCommand)
 	
+	if cfg.GetLinearAPIKey() != "" {
+		fmt.Printf("Linear API Key: configured\n")
+	} else {
+		fmt.Printf("Linear API Key: not configured\n")
+	}
+	
 	configPath, err := getConfigPath()
 	if err != nil {
 		fmt.Printf("Config Path: <error: %v>\n", err)
