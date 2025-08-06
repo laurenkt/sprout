@@ -51,4 +51,20 @@ sprout create --linear [ticket-id]
 
 ## Configuration
 
+Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
+
+```json5
+{
+  // Command to run when sprout is called without arguments
+  // If not specified, defaults to interactive mode
+  "defaultCommand": "echo 'Welcome to Sprout!'"
+}
+```
+
+### Configuration Options
+
+- **`defaultCommand`**: Command to execute when `sprout` is called without arguments. If not specified, launches interactive mode.
+
+### Linear Integration
+
 Linear integration requires API token configuration. See [Configuration Guide](docs/configuration.md) for setup details.
