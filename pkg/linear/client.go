@@ -31,6 +31,13 @@ type Issue struct {
 	HasChildren bool      `json:"hasChildren"`
 	Expanded    bool      `json:"expanded"`
 	Depth       int       `json:"depth"`
+	
+	// UI state for inline subtask creation
+	IsAddSubtask     bool   `json:"-"`        // true if this is an "add subtask" placeholder
+	SubtaskParentID  string `json:"-"`        // ID of parent for new subtask
+	EditingTitle     bool   `json:"-"`        // true when editing this item's title
+	TitleInput       string `json:"-"`        // input buffer for title editing
+	TitleCursor      int    `json:"-"`        // cursor position in title input
 }
 
 // State represents the state of an issue
@@ -309,6 +316,171 @@ func (c *Client) GetIssueChildren(issueID string) ([]Issue, error) {
 	return children, nil
 }
 
+// CreateSubtask creates a new subtask under the given parent issue
+func (c *Client) CreateSubtask(parentID, title string) (*Issue, error) {
+	// First, get the parent issue to extract teamId and current user
+	parentQuery := `
+		query($issueId: String!) {
+			issue(id: $issueId) {
+				id
+				team {
+					id
+				}
+			}
+			viewer {
+				id
+			}
+		}
+	`
+	
+	parentVars := map[string]interface{}{
+		"issueId": parentID,
+	}
+	
+	parentResp, err := c.makeRequest(parentQuery, parentVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parent issue: %w", err)
+	}
+	
+	var parentResult struct {
+		Issue struct {
+			ID   string `json:"id"`
+			Team struct {
+				ID string `json:"id"`
+			} `json:"team"`
+		} `json:"issue"`
+		Viewer struct {
+			ID string `json:"id"`
+		} `json:"viewer"`
+	}
+	
+	if err := json.Unmarshal(parentResp.Data, &parentResult); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal parent issue data: %w", err)
+	}
+
+	// Now create the subtask with the correct teamId and assignee
+	query := `
+		mutation($parentId: String!, $title: String!, $teamId: String!, $assigneeId: String!) {
+			issueCreate(input: {
+				title: $title
+				parentId: $parentId
+				teamId: $teamId
+				assigneeId: $assigneeId
+			}) {
+				success
+				issue {
+					id
+					title
+					description
+					identifier
+					url
+					priority
+					createdAt
+					updatedAt
+					state {
+						id
+						name
+						type
+					}
+					assignee {
+						id
+						name
+						displayName
+						email
+					}
+					children {
+						nodes {
+							id
+						}
+					}
+				}
+			}
+		}
+	`
+
+	variables := map[string]interface{}{
+		"parentId":   parentID,
+		"title":      title,
+		"teamId":     parentResult.Issue.Team.ID,
+		"assigneeId": parentResult.Viewer.ID,
+	}
+
+	resp, err := c.makeRequest(query, variables)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		IssueCreate struct {
+			Success bool `json:"success"`
+			Issue   struct {
+				ID          string `json:"id"`
+				Title       string `json:"title"`
+				Description string `json:"description,omitempty"`
+				Identifier  string `json:"identifier"`
+				URL         string `json:"url"`
+				Priority    int    `json:"priority"`
+				CreatedAt   string `json:"createdAt"`
+				UpdatedAt   string `json:"updatedAt"`
+				State       struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+					Type string `json:"type"`
+				} `json:"state"`
+				Assignee *struct {
+					ID          string `json:"id"`
+					Name        string `json:"name"`
+					DisplayName string `json:"displayName"`
+					Email       string `json:"email"`
+				} `json:"assignee,omitempty"`
+			} `json:"issue"`
+		} `json:"issueCreate"`
+	}
+
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal subtask creation response: %w", err)
+	}
+
+	if !result.IssueCreate.Success {
+		return nil, fmt.Errorf("failed to create subtask")
+	}
+
+	// Convert the response to our Issue struct
+	createdAt, _ := time.Parse(time.RFC3339, result.IssueCreate.Issue.CreatedAt)
+	updatedAt, _ := time.Parse(time.RFC3339, result.IssueCreate.Issue.UpdatedAt)
+	
+	issue := &Issue{
+		ID:          result.IssueCreate.Issue.ID,
+		Title:       result.IssueCreate.Issue.Title,
+		Description: result.IssueCreate.Issue.Description,
+		Identifier:  result.IssueCreate.Issue.Identifier,
+		URL:         result.IssueCreate.Issue.URL,
+		Priority:    result.IssueCreate.Issue.Priority,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+		State: State{
+			ID:   result.IssueCreate.Issue.State.ID,
+			Name: result.IssueCreate.Issue.State.Name,
+			Type: result.IssueCreate.Issue.State.Type,
+		},
+		HasChildren: false, // New subtask won't have children initially
+		Expanded:    false,
+		Depth:       0, // Will be set by the UI
+	}
+	
+	// Convert assignee if present
+	if result.IssueCreate.Issue.Assignee != nil {
+		issue.Assignee = &User{
+			ID:          result.IssueCreate.Issue.Assignee.ID,
+			Name:        result.IssueCreate.Issue.Assignee.Name,
+			DisplayName: result.IssueCreate.Issue.Assignee.DisplayName,
+			Email:       result.IssueCreate.Issue.Assignee.Email,
+		}
+	}
+	
+	return issue, nil
+}
+
 // TestConnection tests the connection to Linear API and returns basic info
 func (c *Client) TestConnection() error {
 	_, err := c.GetCurrentUser()
@@ -317,6 +489,11 @@ func (c *Client) TestConnection() error {
 
 // GetBranchName generates a branch name from an issue
 func (i *Issue) GetBranchName() string {
+	// Safety check for placeholder issues
+	if i.Identifier == "" || i.IsAddSubtask {
+		return "invalid-issue"
+	}
+	
 	// Convert title to kebab-case, limit to reasonable length
 	title := strings.ToLower(i.Title)
 	title = strings.ReplaceAll(title, " ", "-")
