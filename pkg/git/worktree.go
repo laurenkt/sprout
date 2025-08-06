@@ -1,16 +1,18 @@
 package git
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	
+	"sprout/pkg/github"
 )
 
 type WorktreeManager struct {
-	repoRoot string
+	repoRoot     string
+	githubClient *github.Client
 }
 
 func NewWorktreeManager() (*WorktreeManager, error) {
@@ -20,7 +22,8 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 	}
 	
 	return &WorktreeManager{
-		repoRoot: repoRoot,
+		repoRoot:     repoRoot,
+		githubClient: github.NewClient(repoRoot),
 	}, nil
 }
 
@@ -85,11 +88,6 @@ type Worktree struct {
 	PRStatus string
 }
 
-type GitHubPR struct {
-	State string `json:"state"`
-	Title string `json:"title"`
-}
-
 func (wm *WorktreeManager) ListWorktrees() ([]Worktree, error) {
 	cmd := exec.Command("git", "worktree", "list", "--porcelain")
 	cmd.Dir = wm.repoRoot
@@ -102,7 +100,7 @@ func (wm *WorktreeManager) ListWorktrees() ([]Worktree, error) {
 	worktrees := parseWorktreeList(string(output))
 	
 	for i := range worktrees {
-		worktrees[i].PRStatus = wm.getPRStatus(worktrees[i].Branch)
+		worktrees[i].PRStatus = wm.githubClient.GetPRStatus(worktrees[i].Branch)
 	}
 	
 	return worktrees, nil
@@ -145,40 +143,6 @@ func parseWorktreeList(output string) []Worktree {
 	}
 	
 	return worktrees
-}
-
-func (wm *WorktreeManager) getPRStatus(branchName string) string {
-	if branchName == "" || branchName == "master" || branchName == "main" {
-		return "-"
-	}
-	
-	cmd := exec.Command("gh", "pr", "list", "--head", branchName, "--json", "state", "--limit", "1")
-	cmd.Dir = wm.repoRoot
-	
-	output, err := cmd.Output()
-	if err != nil {
-		return "-"
-	}
-	
-	var prs []GitHubPR
-	if err := json.Unmarshal(output, &prs); err != nil {
-		return "-"
-	}
-	
-	if len(prs) == 0 {
-		return "No PR"
-	}
-	
-	switch prs[0].State {
-	case "OPEN":
-		return "Open"
-	case "MERGED":
-		return "Merged"
-	case "CLOSED":
-		return "Closed"
-	default:
-		return prs[0].State
-	}
 }
 
 func validateBranchName(name string) error {
