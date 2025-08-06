@@ -12,12 +12,14 @@ import (
 )
 
 type Config struct {
-	DefaultCommand string `json:"defaultCommand,omitempty"`
+	DefaultCommand  string `json:"defaultCommand,omitempty"`
+	LinearAPIToken  string `json:"linearApiToken,omitempty"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		DefaultCommand: "",
+		LinearAPIToken: "",
 	}
 }
 

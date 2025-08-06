@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"sprout/pkg/config"
 	"sprout/pkg/git"
+	"sprout/pkg/linear"
 )
 
 type model struct {
@@ -19,16 +20,34 @@ type model struct {
 	creating        bool
 	done            bool
 	success         bool
+	cancelled       bool
 	errorMsg        string
 	result          string
 	worktreePath    string
 	worktreeManager *git.WorktreeManager
+	linearClient    *linear.Client
+	linearIssues    []linear.Issue
+	linearLoading   bool
+	linearError     string
 }
 
 func NewTUI() (model, error) {
 	wm, err := git.NewWorktreeManager()
 	if err != nil {
 		return model{}, err
+	}
+
+	// Load config to check for Linear API token
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
+	var linearClient *linear.Client
+	linearLoading := false
+	if cfg.LinearAPIToken != "" {
+		linearClient = linear.NewClient(cfg.LinearAPIToken)
+		linearLoading = true // We'll start loading immediately in Init
 	}
 
 	return model{
@@ -38,14 +57,22 @@ func NewTUI() (model, error) {
 		creating:        false,
 		done:            false,
 		success:         false,
+		cancelled:       false,
 		errorMsg:        "",
 		result:          "",
 		worktreePath:    "",
 		worktreeManager: wm,
+		linearClient:    linearClient,
+		linearIssues:    nil,
+		linearLoading:   linearLoading,
+		linearError:     "",
 	}, nil
 }
 
 func (m model) Init() tea.Cmd {
+	if m.linearClient != nil {
+		return m.fetchLinearIssues()
+	}
 	return nil
 }
 
@@ -58,6 +85,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
+			m.cancelled = true
 			return m, tea.Quit
 
 		case tea.KeyEnter:
@@ -105,6 +133,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.success = false
 		m.errorMsg = msg.err.Error()
 		return m, tea.Quit
+
+	case linearIssuesLoadedMsg:
+		m.linearLoading = false
+		m.linearIssues = msg.issues
+		m.linearError = ""
+		return m, nil
+
+	case linearErrorMsg:
+		m.linearLoading = false
+		m.linearError = msg.err.Error()
+		return m, nil
 	}
 
 	return m, nil
@@ -121,6 +160,16 @@ func (m model) createWorktree() tea.Cmd {
 	}
 }
 
+func (m model) fetchLinearIssues() tea.Cmd {
+	return func() tea.Msg {
+		issues, err := m.linearClient.GetAssignedIssues()
+		if err != nil {
+			return linearErrorMsg{err}
+		}
+		return linearIssuesLoadedMsg{issues}
+	}
+}
+
 
 type errMsg struct {
 	err error
@@ -129,6 +178,14 @@ type errMsg struct {
 type worktreeCreatedMsg struct {
 	branch string
 	path   string
+}
+
+type linearIssuesLoadedMsg struct {
+	issues []linear.Issue
+}
+
+type linearErrorMsg struct {
+	err error
 }
 
 func (m model) View() string {
@@ -160,6 +217,33 @@ func (m model) View() string {
 	}
 	
 	s.WriteString("\n\n")
+	
+	// Display Linear tickets if available
+	if m.linearClient != nil {
+		s.WriteString("📋 Linear Tickets (Assigned to You):\n")
+		
+		if m.linearLoading {
+			s.WriteString("   Loading tickets...\n")
+		} else if m.linearError != "" {
+			s.WriteString(fmt.Sprintf("   Error: %s\n", m.linearError))
+		} else if len(m.linearIssues) == 0 {
+			s.WriteString("   No assigned tickets found\n")
+		} else {
+			for i, issue := range m.linearIssues {
+				if i >= 5 { // Limit display to first 5 tickets
+					s.WriteString(fmt.Sprintf("   ... and %d more\n", len(m.linearIssues)-5))
+					break
+				}
+				truncatedTitle := issue.Title
+				if len(truncatedTitle) > 60 {
+					truncatedTitle = truncatedTitle[:57] + "..."
+				}
+				s.WriteString(fmt.Sprintf("   %s - %s\n", issue.Identifier, truncatedTitle))
+			}
+		}
+		s.WriteString("\n")
+	}
+	
 	s.WriteString("Press Enter to create, Esc/Ctrl+C to quit")
 	
 	return s.String()
@@ -175,6 +259,12 @@ func RunInteractive() error {
 	finalModel, err := p.Run()
 	if err != nil {
 		return err
+	}
+
+	// Check if user cancelled
+	if resultModel, ok := finalModel.(model); ok && resultModel.cancelled {
+		// User pressed Escape/Ctrl+C, exit cleanly
+		return nil
 	}
 
 	// After TUI exits, check if we need to execute a default command
