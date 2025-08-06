@@ -33,6 +33,7 @@ type model struct {
 	linearError     string
 	selectedIndex   int  // -1 for custom input, 0+ for Linear ticket index
 	inputMode       bool // true when in custom input mode, false when selecting tickets
+	creatingSubtask bool // true while creating subtask
 }
 
 var (
@@ -81,6 +82,7 @@ func NewTUI() (model, error) {
 		linearError:     "",
 		selectedIndex:   -1, // Start with custom input selected
 		inputMode:       true,
+		creatingSubtask:  false,
 	}, nil
 }
 
@@ -100,11 +102,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
+			// Check if we're editing inline and exit that mode
+			if !m.inputMode && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
+				selectedIssue := &m.flattenedIssues[m.selectedIndex]
+				if selectedIssue.EditingTitle {
+					// Exit editing mode
+					selectedIssue.EditingTitle = false
+					selectedIssue.TitleInput = ""
+					selectedIssue.TitleCursor = 0
+					if selectedIssue.IsAddSubtask {
+						selectedIssue.Title = "+ Add subtask" // Reset placeholder text
+					}
+					return m, nil
+				}
+			}
+			
 			m.cancelled = true
 			return m, tea.Quit
 
 		case tea.KeyEnter:
 			if !m.submitted {
+				// Check if we're editing a subtask title inline
+				if !m.inputMode && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
+					selectedIssue := &m.flattenedIssues[m.selectedIndex]
+					if selectedIssue.IsAddSubtask && selectedIssue.EditingTitle {
+						// Creating a new subtask
+						if strings.TrimSpace(selectedIssue.TitleInput) == "" {
+							return m, nil // Don't submit empty subtask title
+						}
+						m.creatingSubtask = true
+						return m, m.createSubtaskInline(selectedIssue.SubtaskParentID, strings.TrimSpace(selectedIssue.TitleInput))
+					}
+				}
+				
+				// Regular worktree creation logic
 				var branchName string
 				if m.selectedIndex == -1 {
 					// Using custom input
@@ -115,7 +146,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					// Using selected Linear ticket
 					if m.selectedIndex < len(m.flattenedIssues) {
-						branchName = m.flattenedIssues[m.selectedIndex].GetBranchName()
+						selectedIssue := m.flattenedIssues[m.selectedIndex]
+						
+						// Don't create worktree for "Add subtask" placeholders that aren't being edited
+						if selectedIssue.IsAddSubtask {
+							return m, nil
+						}
+						
+						branchName = selectedIssue.GetBranchName()
 					} else {
 						return m, nil // Invalid selection
 					}
@@ -128,14 +166,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyBackspace:
-			if m.cursor > 0 && !m.submitted {
+			if m.inputMode && m.cursor > 0 && !m.submitted {
 				m.input = m.input[:m.cursor-1] + m.input[m.cursor:]
 				m.cursor--
+			} else if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
+				selectedIssue := &m.flattenedIssues[m.selectedIndex]
+				if selectedIssue.EditingTitle && selectedIssue.TitleCursor > 0 {
+					selectedIssue.TitleInput = selectedIssue.TitleInput[:selectedIssue.TitleCursor-1] + selectedIssue.TitleInput[selectedIssue.TitleCursor:]
+					selectedIssue.TitleCursor--
+				}
 			}
 
 		case tea.KeyLeft:
-			if m.cursor > 0 && !m.submitted && m.inputMode {
+			if m.inputMode && m.cursor > 0 && !m.submitted {
 				m.cursor--
+			} else if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
+				selectedIssue := &m.flattenedIssues[m.selectedIndex]
+				if selectedIssue.EditingTitle && selectedIssue.TitleCursor > 0 {
+					selectedIssue.TitleCursor--
+				}
 			}
 
 		case tea.KeyRight:
@@ -143,9 +192,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Normal cursor movement when in input mode
 				m.cursor++
 			} else if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
-				// Expand/collapse sub-issues when in selection mode
 				selectedIssue := &m.flattenedIssues[m.selectedIndex]
-				if selectedIssue.HasChildren {
+				
+				if selectedIssue.EditingTitle {
+					// Move cursor right in title editing
+					if selectedIssue.TitleCursor < len(selectedIssue.TitleInput) {
+						selectedIssue.TitleCursor++
+					}
+				} else if selectedIssue.IsAddSubtask {
+					// Start editing the "add subtask" placeholder
+					selectedIssue.EditingTitle = true
+					selectedIssue.TitleInput = ""
+					selectedIssue.TitleCursor = 0
+					selectedIssue.Title = ""
+				} else if selectedIssue.HasChildren {
+					// Regular issue - expand/collapse
 					if !selectedIssue.Expanded {
 						// Expand: fetch children if not already loaded
 						if len(selectedIssue.Children) == 0 {
@@ -160,6 +221,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.updateIssueExpansion(selectedIssue.ID, false)
 						m.flattenIssues()
 					}
+				} else {
+					// Issue without children - expand to show "add subtask" option
+					m.updateIssueExpansion(selectedIssue.ID, true)
+					m.flattenIssues()
 				}
 			}
 			
@@ -196,9 +261,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyRunes:
-			if !m.submitted && m.inputMode {
+			if m.inputMode && !m.submitted {
 				m.input = m.input[:m.cursor] + string(msg.Runes) + m.input[m.cursor:]
 				m.cursor += len(msg.Runes)
+			} else if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
+				selectedIssue := &m.flattenedIssues[m.selectedIndex]
+				if selectedIssue.EditingTitle {
+					selectedIssue.TitleInput = selectedIssue.TitleInput[:selectedIssue.TitleCursor] + string(msg.Runes) + selectedIssue.TitleInput[selectedIssue.TitleCursor:]
+					selectedIssue.TitleCursor += len(msg.Runes)
+				}
 			}
 		}
 
@@ -238,6 +309,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case childrenErrorMsg:
 		// Could show error message or silently fail
 		return m, nil
+	
+	case subtaskCreatedMsg:
+		m.creatingSubtask = false
+		
+		// Add the newly created subtask to the parent's children and expand
+		m.addSubtaskToParent(msg.parentID, msg.subtask)
+		m.updateIssueExpansion(msg.parentID, true)
+		m.flattenIssues()
+		
+		// Find and select the newly created subtask
+		for i, issue := range m.flattenedIssues {
+			if issue.ID == msg.subtask.ID {
+				m.selectedIndex = i
+				m.inputMode = false
+				break
+			}
+		}
+		
+		return m, nil
+	
+	case subtaskErrorMsg:
+		m.creatingSubtask = false
+		m.done = true
+		m.success = false
+		m.errorMsg = fmt.Sprintf("Failed to create subtask: %s", msg.err.Error())
+		return m, tea.Quit
 	}
 
 	return m, nil
@@ -255,6 +352,7 @@ func (m model) createWorktree() tea.Cmd {
 }
 
 // flattenIssues creates a flat list of issues for navigation, respecting expanded state
+// and including "add subtask" placeholders where appropriate
 func (m *model) flattenIssues() {
 	m.flattenedIssues = []linear.Issue{}
 	
@@ -264,8 +362,25 @@ func (m *model) flattenIssues() {
 			issue.Depth = depth
 			m.flattenedIssues = append(m.flattenedIssues, issue)
 			
-			if issue.Expanded && len(issue.Children) > 0 {
-				flatten(issue.Children, depth+1)
+			if issue.Expanded {
+				// Add children if they exist
+				if len(issue.Children) > 0 {
+					flatten(issue.Children, depth+1)
+				}
+				
+				// Always add an "add subtask" placeholder when expanded
+				addSubtaskPlaceholder := linear.Issue{
+					ID:              "", // Empty ID indicates this is a placeholder
+					Title:           "+ Add subtask",
+					Identifier:      "",
+					IsAddSubtask:    true,
+					SubtaskParentID: issue.ID,
+					Depth:           depth + 1,
+					EditingTitle:    false,
+					TitleInput:      "",
+					TitleCursor:     0,
+				}
+				m.flattenedIssues = append(m.flattenedIssues, addSubtaskPlaceholder)
 			}
 		}
 	}
@@ -332,6 +447,39 @@ func (m model) fetchChildren(issueID string) tea.Cmd {
 	}
 }
 
+func (m model) createSubtaskInline(parentID, title string) tea.Cmd {
+	return func() tea.Msg {
+		subtask, err := m.linearClient.CreateSubtask(parentID, title)
+		if err != nil {
+			return subtaskErrorMsg{err}
+		}
+		return subtaskCreatedMsg{parentID, *subtask}
+	}
+}
+
+// addSubtaskToParent adds a newly created subtask to its parent's children
+func (m *model) addSubtaskToParent(parentID string, subtask linear.Issue) {
+	var addToParent func(issues *[]linear.Issue)
+	addToParent = func(issues *[]linear.Issue) {
+		for i := range *issues {
+			if (*issues)[i].ID == parentID {
+				// Add the new subtask as a child
+				subtask.Depth = (*issues)[i].Depth + 1
+				if (*issues)[i].Children == nil {
+					(*issues)[i].Children = []linear.Issue{}
+				}
+				(*issues)[i].Children = append((*issues)[i].Children, subtask)
+				(*issues)[i].HasChildren = true
+				return
+			}
+			if len((*issues)[i].Children) > 0 {
+				addToParent(&(*issues)[i].Children)
+			}
+		}
+	}
+	addToParent(&m.linearIssues)
+}
+
 
 type errMsg struct {
 	err error
@@ -359,6 +507,15 @@ type childrenErrorMsg struct {
 	err error
 }
 
+type subtaskCreatedMsg struct {
+	parentID string
+	subtask  linear.Issue
+}
+
+type subtaskErrorMsg struct {
+	err error
+}
+
 func (m model) View() string {
 	if m.done {
 		if m.success {
@@ -370,6 +527,10 @@ func (m model) View() string {
 
 	if m.creating {
 		return "Creating worktree...\n"
+	}
+	
+	if m.creatingSubtask {
+		return "Creating subtask...\n"
 	}
 
 	s := strings.Builder{}
@@ -433,9 +594,26 @@ func (m model) View() string {
 			}
 			
 			for i, issue := range displayIssues {
-				truncatedTitle := issue.Title
-				if len(truncatedTitle) > 60 {
-					truncatedTitle = truncatedTitle[:57] + "..."
+				var displayTitle string
+				
+				// Handle inline editing for add subtask placeholders
+				if issue.IsAddSubtask && issue.EditingTitle {
+					// Show input field with cursor
+					displayTitle = ""
+					for j, r := range issue.TitleInput {
+						if j == issue.TitleCursor {
+							displayTitle += "│"
+						}
+						displayTitle += string(r)
+					}
+					if issue.TitleCursor == len(issue.TitleInput) {
+						displayTitle += "│"
+					}
+				} else {
+					displayTitle = issue.Title
+					if len(displayTitle) > 60 {
+						displayTitle = displayTitle[:57] + "..."
+					}
 				}
 				
 				// Create indentation based on depth
@@ -443,7 +621,9 @@ func (m model) View() string {
 				
 				// Add expansion indicator for items with children
 				expandIndicator := ""
-				if issue.HasChildren {
+				if issue.IsAddSubtask {
+					expandIndicator = "  " // No expansion indicator for add subtask items
+				} else if issue.HasChildren {
 					if issue.Expanded {
 						expandIndicator = "▼ "
 					} else {
@@ -456,7 +636,7 @@ func (m model) View() string {
 				// Create the identifier with indentation
 				identifierWithIndent := indent + expandIndicator + issue.Identifier
 				paddedIdentifier := fmt.Sprintf("%-*s", maxLabelLen, identifierWithIndent)
-				line := fmt.Sprintf("     %s: %s", paddedIdentifier, truncatedTitle)
+				line := fmt.Sprintf("     %s: %s", paddedIdentifier, displayTitle)
 				
 				if m.selectedIndex == i {
 					s.WriteString(selectedStyle.Render(line) + "\n")
@@ -472,7 +652,7 @@ func (m model) View() string {
 		s.WriteString("\n")
 	}
 	
-	s.WriteString("Use ↑/↓ to navigate, → to expand/collapse sub-issues, Enter to create worktree, Esc/Ctrl+C to quit")
+	s.WriteString("Use ↑/↓ to navigate, → to expand/edit, Enter to create worktree, Esc/Ctrl+C to quit")
 	
 	return s.String()
 }
