@@ -43,8 +43,11 @@ sprout list
 # One-shot worktree creation
 sprout create [branch-name]
 
-# One-shot with Linear ticket
-sprout create --linear [ticket-id]
+# One-shot with command execution
+sprout create [branch-name] [command...]
+
+# Check configuration and connectivity
+sprout doctor
 ```
 
 ## Requirements
@@ -60,16 +63,57 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
 
 ```json5
 {
-  // Command to run when sprout is called without arguments
-  // If not specified, defaults to interactive mode
-  "defaultCommand": "echo 'Welcome to Sprout!'"
+  // Command to run after creating a worktree in interactive mode
+  // If not specified, exits cleanly without running any command
+  "defaultCommand": "code .",
+  
+  // Linear API token for issue tracking integration
+  // Get your token from Linear Settings > Account > Security & Access
+  "linearApiToken": "lin_api_YOUR_TOKEN_HERE"
 }
 ```
 
 ### Configuration Options
 
-- **`defaultCommand`**: Command to execute when `sprout` is called without arguments. If not specified, launches interactive mode.
+- **`defaultCommand`**: Command to execute after creating a worktree in interactive mode. Common examples:
+  - `"code ."` - Open in VS Code
+  - `"nvim"` - Open in Neovim
+  - `"bash"` - Start a new shell session
+  
+- **`linearApiToken`**: Your Linear personal API token for accessing Linear tickets. Required for Linear integration features.
 
 ### Linear Integration
 
-Linear integration requires API token configuration. See [Configuration Guide](docs/configuration.md) for setup details.
+When configured with a Linear API token, Sprout displays your assigned tickets in interactive mode:
+
+```
+🌱 Sprout - Create New Worktree
+
+Enter branch name: │
+
+📋 Linear Tickets (Assigned to You):
+   ABC-123 - Implement user authentication
+   XYZ-456 - Fix database connection pooling
+   DEF-789 - Add unit tests for payment module
+
+Press Enter to create, Esc/Ctrl+C to quit
+```
+
+To get your Linear API token:
+1. Go to Linear Settings > Account > Security & Access
+2. Create a new personal API key
+3. Add it to your `~/.sprout.json5` configuration
+
+### Checking Configuration
+
+Use the `doctor` command to verify your configuration and test Linear connectivity:
+
+```bash
+sprout doctor
+```
+
+This will show:
+- Configuration file path and status
+- Default command setting
+- Linear API token (masked for security)
+- Linear connection status and user information
