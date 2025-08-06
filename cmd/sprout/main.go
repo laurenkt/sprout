@@ -42,6 +42,11 @@ func main() {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
+	case "prune":
+		if err := handlePruneCommand(os.Args[2:]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
 	case "doctor":
 		handleDoctorCommand(cfg)
 	case "help", "--help", "-h":
@@ -168,6 +173,21 @@ func handleListCommand() error {
 	return nil
 }
 
+func handlePruneCommand(args []string) error {
+	wm, err := git.NewWorktreeManager()
+	if err != nil {
+		return err
+	}
+	
+	if len(args) == 0 {
+		// Prune all merged branches
+		return wm.PruneAllMerged()
+	}
+	
+	branchName := args[0]
+	return wm.PruneWorktree(branchName)
+}
+
 func handleDoctorCommand(cfg *config.Config) {
 	fmt.Println("Sprout Configuration")
 	fmt.Println("===================")
@@ -251,6 +271,7 @@ func printHelp() {
 	fmt.Println("  sprout list                         List all worktrees")
 	fmt.Println("  sprout create <branch>              Create worktree and output path")
 	fmt.Println("  sprout create <branch> <command>    Create worktree and run command in it")
+	fmt.Println("  sprout prune [branch]               Remove worktree(s) - all merged if no branch specified")
 	fmt.Println("  sprout doctor                       Show configuration values")
 	fmt.Println("  sprout help                         Show this help")
 	fmt.Println()
@@ -260,4 +281,6 @@ func printHelp() {
 	fmt.Println("  sprout create mybranch bash          # Create worktree and start bash")
 	fmt.Println("  sprout create mybranch code .        # Create worktree and open in VS Code")
 	fmt.Println("  sprout create mybranch git status    # Create worktree and run git status")
+	fmt.Println("  sprout prune                         # Remove all merged worktrees")
+	fmt.Println("  sprout prune mybranch                # Remove specific worktree and directory")
 }
