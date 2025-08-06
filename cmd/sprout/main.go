@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	
 	"sprout/pkg/git"
@@ -22,6 +23,11 @@ func main() {
 	switch command {
 	case "create":
 		if err := handleCreateCommand(os.Args[2:]); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "list":
+		if err := handleListCommand(); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -81,16 +87,55 @@ func handleCreateCommand(args []string) error {
 	return nil
 }
 
+func handleListCommand() error {
+	wm, err := git.NewWorktreeManager()
+	if err != nil {
+		return err
+	}
+	
+	worktrees, err := wm.ListWorktrees()
+	if err != nil {
+		return err
+	}
+	
+	var filteredWorktrees []git.Worktree
+	for _, wt := range worktrees {
+		if wt.Branch != "master" && wt.Branch != "main" && wt.Branch != "" {
+			filteredWorktrees = append(filteredWorktrees, wt)
+		}
+	}
+	
+	if len(filteredWorktrees) == 0 {
+		fmt.Println("No worktrees found")
+		return nil
+	}
+	
+	fmt.Printf("%-20s %-10s %s\n", "BRANCH", "PR STATUS", "COMMIT")
+	fmt.Println(strings.Repeat("-", 40))
+	
+	for _, wt := range filteredWorktrees {
+		commit := wt.Commit
+		if len(commit) > 8 {
+			commit = commit[:8]
+		}
+		fmt.Printf("%-20s %-10s %s\n", wt.Branch, wt.PRStatus, commit)
+	}
+	
+	return nil
+}
+
 func printHelp() {
 	fmt.Println("Sprout - Git Worktree Terminal UI")
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  sprout                              Start in interactive mode")
+	fmt.Println("  sprout list                         List all worktrees")
 	fmt.Println("  sprout create <branch>              Create worktree and output path")
 	fmt.Println("  sprout create <branch> <command>    Create worktree and run command in it")
 	fmt.Println("  sprout help                         Show this help")
 	fmt.Println()
 	fmt.Println("Examples:")
+	fmt.Println("  sprout list                          # Show all worktrees")
 	fmt.Println("  cd \"$(sprout create mybranch)\"       # Change to worktree directory")
 	fmt.Println("  sprout create mybranch bash          # Create worktree and start bash")
 	fmt.Println("  sprout create mybranch code .        # Create worktree and open in VS Code")
