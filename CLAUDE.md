@@ -62,10 +62,9 @@ The application supports two primary modes:
 
 ### Development Commands
 
-```bash
-# Build the application
-go build -o sprout ./cmd/sprout
+Prefer to run with `go run` rather than building artefacts.
 
+```bash
 # Run directly
 go run ./cmd/sprout
 
@@ -157,16 +156,6 @@ The application will need configuration for:
 - Worktree directory preferences
 - User interface customizations
 
-Reference the planned "Configuration Guide" at `docs/configuration.md` (not yet created).
+# When raising PRs
 
-## Future Claude Code Sessions
-
-When working on this codebase:
-
-1. **Start with core functionality**: Implement `pkg/git/` operations first as they're foundational
-2. **Focus on one package at a time**: Complete implementation before moving to next package
-3. **Test as you go**: Add tests alongside implementation
-4. **Update main.go**: Connect new package functionality to CLI as implemented
-5. **Maintain README**: Update usage examples as features are completed
-
-The project has a clear vision and good structure foundation - implementation should follow the planned architecture while maintaining the user experience goals outlined in the README.
+- Don't include a "test plan"
