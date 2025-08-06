@@ -62,14 +62,27 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
 {
   // Command to run when sprout is called without arguments
   // If not specified, defaults to interactive mode
-  "defaultCommand": "echo 'Welcome to Sprout!'"
+  "defaultCommand": "echo 'Welcome to Sprout!'",
+  
+  // Linear API key for ticket integration
+  "linearApiKey": "your-linear-api-key-here"
 }
 ```
 
 ### Configuration Options
 
 - **`defaultCommand`**: Command to execute when `sprout` is called without arguments. If not specified, launches interactive mode.
+- **`linearApiKey`**: Your Linear API key for accessing tickets and creating branches from Linear issues.
 
 ### Linear Integration
 
-Linear integration requires API token configuration. See [Configuration Guide](docs/configuration.md) for setup details.
+To use Linear integration features, you'll need to:
+
+1. Get your Linear API key from [Linear Settings > API](https://linear.app/settings/api)
+2. Add it to your `~/.sprout.json5` configuration file
+3. Run `sprout doctor` to verify the configuration is working
+
+The Linear API key enables:
+- Browsing and selecting tickets for worktree creation
+- Automatic branch name suggestions based on ticket titles
+- Creating subtasks directly from the terminal UI
