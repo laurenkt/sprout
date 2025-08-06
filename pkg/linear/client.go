@@ -26,6 +26,11 @@ type Issue struct {
 	URL         string    `json:"url"`
 	Identifier  string    `json:"identifier"`
 	Priority    int       `json:"priority"`
+	Children    []Issue   `json:"children,omitempty"`
+	Parent      *Issue    `json:"parent,omitempty"`
+	HasChildren bool      `json:"hasChildren"`
+	Expanded    bool      `json:"expanded"`
+	Depth       int       `json:"depth"`
 }
 
 // State represents the state of an issue
@@ -186,6 +191,11 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 						displayName
 						email
 					}
+					children {
+						nodes {
+							id
+						}
+					}
 				}
 			}
 		}
@@ -198,7 +208,14 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 
 	var result struct {
 		Issues struct {
-			Nodes []Issue `json:"nodes"`
+			Nodes []struct {
+				Issue
+				Children struct {
+					Nodes []struct {
+						ID string `json:"id"`
+					} `json:"nodes"`
+				} `json:"children"`
+			} `json:"nodes"`
 		} `json:"issues"`
 	}
 
@@ -206,7 +223,90 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 		return nil, fmt.Errorf("failed to unmarshal issues data: %w", err)
 	}
 
-	return result.Issues.Nodes, nil
+	issues := make([]Issue, len(result.Issues.Nodes))
+	for i, node := range result.Issues.Nodes {
+		issues[i] = node.Issue
+		issues[i].HasChildren = len(node.Children.Nodes) > 0
+		issues[i].Depth = 0
+		issues[i].Expanded = false
+	}
+
+	return issues, nil
+}
+
+// GetIssueChildren fetches children/sub-issues for a given issue ID
+func (c *Client) GetIssueChildren(issueID string) ([]Issue, error) {
+	query := `
+		query($issueId: String!) {
+			issue(id: $issueId) {
+				children {
+					nodes {
+						id
+						title
+						description
+						identifier
+						url
+						priority
+						createdAt
+						updatedAt
+						state {
+							id
+							name
+							type
+						}
+						assignee {
+							id
+							name
+							displayName
+							email
+						}
+						children {
+							nodes {
+								id
+							}
+						}
+					}
+				}
+			}
+		}
+	`
+
+	variables := map[string]interface{}{
+		"issueId": issueID,
+	}
+
+	resp, err := c.makeRequest(query, variables)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Issue struct {
+			Children struct {
+				Nodes []struct {
+					Issue
+					Children struct {
+						Nodes []struct {
+							ID string `json:"id"`
+						} `json:"nodes"`
+					} `json:"children"`
+				} `json:"nodes"`
+			} `json:"children"`
+		} `json:"issue"`
+	}
+
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal children data: %w", err)
+	}
+
+	children := make([]Issue, len(result.Issue.Children.Nodes))
+	for i, node := range result.Issue.Children.Nodes {
+		children[i] = node.Issue
+		children[i].HasChildren = len(node.Children.Nodes) > 0
+		children[i].Expanded = false
+	}
+
+	return children, nil
 }
 
 // TestConnection tests the connection to Linear API and returns basic info
