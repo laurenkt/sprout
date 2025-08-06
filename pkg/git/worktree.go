@@ -6,10 +6,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	
+	"sprout/pkg/github"
 )
 
 type WorktreeManager struct {
-	repoRoot string
+	repoRoot     string
+	githubClient *github.Client
 }
 
 func NewWorktreeManager() (*WorktreeManager, error) {
@@ -19,7 +22,8 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 	}
 	
 	return &WorktreeManager{
-		repoRoot: repoRoot,
+		repoRoot:     repoRoot,
+		githubClient: github.NewClient(repoRoot),
 	}, nil
 }
 
@@ -75,6 +79,70 @@ func getRepositoryRoot() (string, error) {
 	}
 	
 	return strings.TrimSpace(string(output)), nil
+}
+
+type Worktree struct {
+	Path     string
+	Branch   string
+	Commit   string
+	PRStatus string
+}
+
+func (wm *WorktreeManager) ListWorktrees() ([]Worktree, error) {
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = wm.repoRoot
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list worktrees: %w", err)
+	}
+	
+	worktrees := parseWorktreeList(string(output))
+	
+	for i := range worktrees {
+		worktrees[i].PRStatus = wm.githubClient.GetPRStatus(worktrees[i].Branch)
+	}
+	
+	return worktrees, nil
+}
+
+func parseWorktreeList(output string) []Worktree {
+	var worktrees []Worktree
+	var current Worktree
+	
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		if line == "" {
+			if current.Path != "" {
+				worktrees = append(worktrees, current)
+				current = Worktree{}
+			}
+			continue
+		}
+		
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		
+		key, value := parts[0], parts[1]
+		switch key {
+		case "worktree":
+			current.Path = value
+		case "branch":
+			if strings.HasPrefix(value, "refs/heads/") {
+				current.Branch = strings.TrimPrefix(value, "refs/heads/")
+			}
+		case "HEAD":
+			current.Commit = value
+		}
+	}
+	
+	if current.Path != "" {
+		worktrees = append(worktrees, current)
+	}
+	
+	return worktrees
 }
 
 func validateBranchName(name string) error {

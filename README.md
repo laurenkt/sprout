@@ -9,6 +9,7 @@ Sprout simplifies git worktree management by providing both interactive and comm
 ## Features
 
 ### Git Worktree Management
+- **List existing worktrees**: View all worktrees with branch names, PR status, and commit information
 - **Create worktrees from any location**: Generate new worktrees from the current repository, regardless of which worktree you're currently in
 - **Flexible branch naming**: Optionally specify branch names or let Linear integration handle it automatically
 - **Intelligent input parsing**: Enter as much or as little information as you want - Sprout figures out the rest
@@ -36,6 +37,9 @@ Sprout simplifies git worktree management by providing both interactive and comm
 # Interactive mode
 sprout
 
+# List all worktrees with PR status
+sprout list
+
 # One-shot worktree creation
 sprout create [branch-name]
 
@@ -47,6 +51,7 @@ sprout create --linear [ticket-id]
 
 - Go 1.21+
 - Git 2.5+ (for worktree support)
+- GitHub CLI (`gh`) for PR status information
 - Linear API access (for Linear integration features)
 
 ## Configuration
