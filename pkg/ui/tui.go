@@ -28,6 +28,7 @@ type model struct {
 	worktreeManager *git.WorktreeManager
 	linearClient    *linear.Client
 	linearIssues    []linear.Issue
+	flattenedIssues []linear.Issue // flattened view for navigation
 	linearLoading   bool
 	linearError     string
 	selectedIndex   int  // -1 for custom input, 0+ for Linear ticket index
@@ -75,6 +76,7 @@ func NewTUI() (model, error) {
 		worktreeManager: wm,
 		linearClient:    linearClient,
 		linearIssues:    nil,
+		flattenedIssues: nil,
 		linearLoading:   linearLoading,
 		linearError:     "",
 		selectedIndex:   -1, // Start with custom input selected
@@ -112,8 +114,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					branchName = strings.TrimSpace(m.input)
 				} else {
 					// Using selected Linear ticket
-					if m.selectedIndex < len(m.linearIssues) {
-						branchName = m.linearIssues[m.selectedIndex].GetBranchName()
+					if m.selectedIndex < len(m.flattenedIssues) {
+						branchName = m.flattenedIssues[m.selectedIndex].GetBranchName()
 					} else {
 						return m, nil // Invalid selection
 					}
@@ -137,16 +139,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyRight:
-			if m.cursor < len(m.input) && !m.submitted && m.inputMode {
+			if m.inputMode && m.cursor < len(m.input) && !m.submitted {
+				// Normal cursor movement when in input mode
 				m.cursor++
+			} else if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
+				// Expand/collapse sub-issues when in selection mode
+				selectedIssue := &m.flattenedIssues[m.selectedIndex]
+				if selectedIssue.HasChildren {
+					if !selectedIssue.Expanded {
+						// Expand: fetch children if not already loaded
+						if len(selectedIssue.Children) == 0 {
+							return m, m.fetchChildren(selectedIssue.ID)
+						} else {
+							// Already loaded, just expand
+							m.updateIssueExpansion(selectedIssue.ID, true)
+							m.flattenIssues()
+						}
+					} else {
+						// Collapse
+						m.updateIssueExpansion(selectedIssue.ID, false)
+						m.flattenIssues()
+					}
+				}
 			}
 			
 		case tea.KeyUp:
 			if !m.submitted {
 				if m.selectedIndex == -1 {
 					// Already at custom input, do nothing or go to last ticket
-					if len(m.linearIssues) > 0 {
-						m.selectedIndex = len(m.linearIssues) - 1
+					if len(m.flattenedIssues) > 0 {
+						m.selectedIndex = len(m.flattenedIssues) - 1
 						m.inputMode = false
 					}
 				} else if m.selectedIndex > 0 {
@@ -160,13 +182,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyDown:
 			if !m.submitted {
-				if m.selectedIndex == -1 && len(m.linearIssues) > 0 {
+				if m.selectedIndex == -1 && len(m.flattenedIssues) > 0 {
 					// Move from custom input to first ticket
 					m.selectedIndex = 0
 					m.inputMode = false
-				} else if m.selectedIndex >= 0 && m.selectedIndex < len(m.linearIssues)-1 {
+				} else if m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues)-1 {
 					m.selectedIndex++
-				} else if m.selectedIndex == len(m.linearIssues)-1 {
+				} else if m.selectedIndex == len(m.flattenedIssues)-1 {
 					// Go back to custom input
 					m.selectedIndex = -1
 					m.inputMode = true
@@ -200,11 +222,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.linearLoading = false
 		m.linearIssues = msg.issues
 		m.linearError = ""
+		m.flattenIssues()
 		return m, nil
 
 	case linearErrorMsg:
 		m.linearLoading = false
 		m.linearError = msg.err.Error()
+		return m, nil
+
+	case childrenLoadedMsg:
+		m.setIssueChildren(msg.parentID, msg.children)
+		m.flattenIssues()
+		return m, nil
+
+	case childrenErrorMsg:
+		// Could show error message or silently fail
 		return m, nil
 	}
 
@@ -222,6 +254,64 @@ func (m model) createWorktree() tea.Cmd {
 	}
 }
 
+// flattenIssues creates a flat list of issues for navigation, respecting expanded state
+func (m *model) flattenIssues() {
+	m.flattenedIssues = []linear.Issue{}
+	
+	var flatten func(issues []linear.Issue, depth int)
+	flatten = func(issues []linear.Issue, depth int) {
+		for _, issue := range issues {
+			issue.Depth = depth
+			m.flattenedIssues = append(m.flattenedIssues, issue)
+			
+			if issue.Expanded && len(issue.Children) > 0 {
+				flatten(issue.Children, depth+1)
+			}
+		}
+	}
+	
+	flatten(m.linearIssues, 0)
+}
+
+// updateIssueExpansion updates the expanded state of an issue recursively
+func (m *model) updateIssueExpansion(issueID string, expanded bool) {
+	var update func(issues *[]linear.Issue)
+	update = func(issues *[]linear.Issue) {
+		for i := range *issues {
+			if (*issues)[i].ID == issueID {
+				(*issues)[i].Expanded = expanded
+				return
+			}
+			if len((*issues)[i].Children) > 0 {
+				update(&(*issues)[i].Children)
+			}
+		}
+	}
+	update(&m.linearIssues)
+}
+
+// setIssueChildren sets the children for a specific issue
+func (m *model) setIssueChildren(parentID string, children []linear.Issue) {
+	var setChildren func(issues *[]linear.Issue)
+	setChildren = func(issues *[]linear.Issue) {
+		for i := range *issues {
+			if (*issues)[i].ID == parentID {
+				(*issues)[i].Children = children
+				(*issues)[i].Expanded = true
+				// Set depth for children
+				for j := range (*issues)[i].Children {
+					(*issues)[i].Children[j].Depth = (*issues)[i].Depth + 1
+				}
+				return
+			}
+			if len((*issues)[i].Children) > 0 {
+				setChildren(&(*issues)[i].Children)
+			}
+		}
+	}
+	setChildren(&m.linearIssues)
+}
+
 func (m model) fetchLinearIssues() tea.Cmd {
 	return func() tea.Msg {
 		issues, err := m.linearClient.GetAssignedIssues()
@@ -229,6 +319,16 @@ func (m model) fetchLinearIssues() tea.Cmd {
 			return linearErrorMsg{err}
 		}
 		return linearIssuesLoadedMsg{issues}
+	}
+}
+
+func (m model) fetchChildren(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		children, err := m.linearClient.GetIssueChildren(issueID)
+		if err != nil {
+			return childrenErrorMsg{err}
+		}
+		return childrenLoadedMsg{issueID, children}
 	}
 }
 
@@ -250,6 +350,15 @@ type linearErrorMsg struct {
 	err error
 }
 
+type childrenLoadedMsg struct {
+	parentID string
+	children []linear.Issue
+}
+
+type childrenErrorMsg struct {
+	err error
+}
+
 func (m model) View() string {
 	if m.done {
 		if m.success {
@@ -268,14 +377,16 @@ func (m model) View() string {
 	
 	// Find the longest label for alignment (including both "Branch Name" and Linear identifiers)
 	maxLabelLen := len("Branch Name")
-	if len(m.linearIssues) > 0 {
-		displayIssues := m.linearIssues
+	if len(m.flattenedIssues) > 0 {
+		displayIssues := m.flattenedIssues
 		if len(displayIssues) > 5 {
 			displayIssues = displayIssues[:5]
 		}
 		for _, issue := range displayIssues {
-			if len(issue.Identifier) > maxLabelLen {
-				maxLabelLen = len(issue.Identifier)
+			// Account for indentation in label length calculation
+			indentedLen := len(issue.Identifier) + (issue.Depth * 2)
+			if indentedLen > maxLabelLen {
+				maxLabelLen = indentedLen
 			}
 		}
 	}
@@ -313,10 +424,10 @@ func (m model) View() string {
 			s.WriteString("   Loading tickets...\n")
 		} else if m.linearError != "" {
 			s.WriteString(fmt.Sprintf("   Error: %s\n", m.linearError))
-		} else if len(m.linearIssues) == 0 {
+		} else if len(m.flattenedIssues) == 0 {
 			s.WriteString("   No assigned tickets found\n")
 		} else {
-			displayIssues := m.linearIssues
+			displayIssues := m.flattenedIssues
 			if len(displayIssues) > 5 {
 				displayIssues = displayIssues[:5]
 			}
@@ -327,8 +438,24 @@ func (m model) View() string {
 					truncatedTitle = truncatedTitle[:57] + "..."
 				}
 				
-				// Create aligned format using the same maxLabelLen as the input field
-				paddedIdentifier := fmt.Sprintf("%-*s", maxLabelLen, issue.Identifier)
+				// Create indentation based on depth
+				indent := strings.Repeat("  ", issue.Depth)
+				
+				// Add expansion indicator for items with children
+				expandIndicator := ""
+				if issue.HasChildren {
+					if issue.Expanded {
+						expandIndicator = "▼ "
+					} else {
+						expandIndicator = "▶ "
+					}
+				} else {
+					expandIndicator = "  " // Same width as indicators
+				}
+				
+				// Create the identifier with indentation
+				identifierWithIndent := indent + expandIndicator + issue.Identifier
+				paddedIdentifier := fmt.Sprintf("%-*s", maxLabelLen, identifierWithIndent)
 				line := fmt.Sprintf("     %s: %s", paddedIdentifier, truncatedTitle)
 				
 				if m.selectedIndex == i {
@@ -338,14 +465,14 @@ func (m model) View() string {
 				}
 			}
 			
-			if len(m.linearIssues) > 5 {
-				s.WriteString(fmt.Sprintf("     ... and %d more\n", len(m.linearIssues)-5))
+			if len(m.flattenedIssues) > 5 {
+				s.WriteString(fmt.Sprintf("     ... and %d more\n", len(m.flattenedIssues)-5))
 			}
 		}
 		s.WriteString("\n")
 	}
 	
-	s.WriteString("Use ↑/↓ to navigate, Enter to create worktree, Esc/Ctrl+C to quit")
+	s.WriteString("Use ↑/↓ to navigate, → to expand/collapse sub-issues, Enter to create worktree, Esc/Ctrl+C to quit")
 	
 	return s.String()
 }
