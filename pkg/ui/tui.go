@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"sprout/pkg/config"
 	"sprout/pkg/git"
 	"sprout/pkg/linear"
@@ -29,7 +30,17 @@ type model struct {
 	linearIssues    []linear.Issue
 	linearLoading   bool
 	linearError     string
+	selectedIndex   int  // -1 for custom input, 0+ for Linear ticket index
+	inputMode       bool // true when in custom input mode, false when selecting tickets
 }
+
+var (
+	selectedStyle = lipgloss.NewStyle().
+		Background(lipgloss.Color("240")).
+		Foreground(lipgloss.Color("15"))
+	
+	normalStyle = lipgloss.NewStyle()
+)
 
 func NewTUI() (model, error) {
 	wm, err := git.NewWorktreeManager()
@@ -66,6 +77,8 @@ func NewTUI() (model, error) {
 		linearIssues:    nil,
 		linearLoading:   linearLoading,
 		linearError:     "",
+		selectedIndex:   -1, // Start with custom input selected
+		inputMode:       true,
 	}, nil
 }
 
@@ -89,9 +102,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case tea.KeyEnter:
-			if strings.TrimSpace(m.input) != "" && !m.submitted {
+			if !m.submitted {
+				var branchName string
+				if m.selectedIndex == -1 {
+					// Using custom input
+					if strings.TrimSpace(m.input) == "" {
+						return m, nil // Don't submit empty input
+					}
+					branchName = strings.TrimSpace(m.input)
+				} else {
+					// Using selected Linear ticket
+					if m.selectedIndex < len(m.linearIssues) {
+						branchName = m.linearIssues[m.selectedIndex].GetBranchName()
+					} else {
+						return m, nil // Invalid selection
+					}
+				}
+				
 				m.submitted = true
 				m.creating = true
+				m.input = branchName // Set the input to the selected branch name
 				return m, m.createWorktree()
 			}
 
@@ -102,17 +132,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyLeft:
-			if m.cursor > 0 && !m.submitted {
+			if m.cursor > 0 && !m.submitted && m.inputMode {
 				m.cursor--
 			}
 
 		case tea.KeyRight:
-			if m.cursor < len(m.input) && !m.submitted {
+			if m.cursor < len(m.input) && !m.submitted && m.inputMode {
 				m.cursor++
+			}
+			
+		case tea.KeyUp:
+			if !m.submitted {
+				if m.selectedIndex == -1 {
+					// Already at custom input, do nothing or go to last ticket
+					if len(m.linearIssues) > 0 {
+						m.selectedIndex = len(m.linearIssues) - 1
+						m.inputMode = false
+					}
+				} else if m.selectedIndex > 0 {
+					m.selectedIndex--
+				} else {
+					// Go back to custom input
+					m.selectedIndex = -1
+					m.inputMode = true
+				}
+			}
+
+		case tea.KeyDown:
+			if !m.submitted {
+				if m.selectedIndex == -1 && len(m.linearIssues) > 0 {
+					// Move from custom input to first ticket
+					m.selectedIndex = 0
+					m.inputMode = false
+				} else if m.selectedIndex >= 0 && m.selectedIndex < len(m.linearIssues)-1 {
+					m.selectedIndex++
+				} else if m.selectedIndex == len(m.linearIssues)-1 {
+					// Go back to custom input
+					m.selectedIndex = -1
+					m.inputMode = true
+				}
 			}
 
 		case tea.KeyRunes:
-			if !m.submitted {
+			if !m.submitted && m.inputMode {
 				m.input = m.input[:m.cursor] + string(msg.Runes) + m.input[m.cursor:]
 				m.cursor += len(msg.Runes)
 			}
@@ -203,20 +265,45 @@ func (m model) View() string {
 
 	s := strings.Builder{}
 	s.WriteString("🌱 Sprout - Create New Worktree\n\n")
-	s.WriteString("Enter branch name: ")
 	
-	// Display input with cursor
-	for i, r := range m.input {
-		if i == m.cursor {
-			s.WriteString("│")
+	// Find the longest label for alignment (including both "Branch Name" and Linear identifiers)
+	maxLabelLen := len("Branch Name")
+	if len(m.linearIssues) > 0 {
+		displayIssues := m.linearIssues
+		if len(displayIssues) > 5 {
+			displayIssues = displayIssues[:5]
 		}
-		s.WriteRune(r)
-	}
-	if m.cursor == len(m.input) {
-		s.WriteString("│")
+		for _, issue := range displayIssues {
+			if len(issue.Identifier) > maxLabelLen {
+				maxLabelLen = len(issue.Identifier)
+			}
+		}
 	}
 	
-	s.WriteString("\n\n")
+	// Custom input field
+	inputLabel := "Branch Name"
+	inputText := ""
+	if m.inputMode {
+		for i, r := range m.input {
+			if i == m.cursor {
+				inputText += "│"
+			}
+			inputText += string(r)
+		}
+		if m.cursor == len(m.input) {
+			inputText += "│"
+		}
+	} else {
+		inputText = m.input
+	}
+	
+	paddedLabel := fmt.Sprintf("%-*s", maxLabelLen, inputLabel)
+	inputLine := fmt.Sprintf("     %s: %s", paddedLabel, inputText)
+	if m.selectedIndex == -1 {
+		s.WriteString(selectedStyle.Render(inputLine) + "\n\n")
+	} else {
+		s.WriteString(normalStyle.Render(inputLine) + "\n\n")
+	}
 	
 	// Display Linear tickets if available
 	if m.linearClient != nil {
@@ -229,22 +316,36 @@ func (m model) View() string {
 		} else if len(m.linearIssues) == 0 {
 			s.WriteString("   No assigned tickets found\n")
 		} else {
-			for i, issue := range m.linearIssues {
-				if i >= 5 { // Limit display to first 5 tickets
-					s.WriteString(fmt.Sprintf("   ... and %d more\n", len(m.linearIssues)-5))
-					break
-				}
+			displayIssues := m.linearIssues
+			if len(displayIssues) > 5 {
+				displayIssues = displayIssues[:5]
+			}
+			
+			for i, issue := range displayIssues {
 				truncatedTitle := issue.Title
 				if len(truncatedTitle) > 60 {
 					truncatedTitle = truncatedTitle[:57] + "..."
 				}
-				s.WriteString(fmt.Sprintf("   %s - %s\n", issue.Identifier, truncatedTitle))
+				
+				// Create aligned format using the same maxLabelLen as the input field
+				paddedIdentifier := fmt.Sprintf("%-*s", maxLabelLen, issue.Identifier)
+				line := fmt.Sprintf("     %s: %s", paddedIdentifier, truncatedTitle)
+				
+				if m.selectedIndex == i {
+					s.WriteString(selectedStyle.Render(line) + "\n")
+				} else {
+					s.WriteString(normalStyle.Render(line) + "\n")
+				}
+			}
+			
+			if len(m.linearIssues) > 5 {
+				s.WriteString(fmt.Sprintf("     ... and %d more\n", len(m.linearIssues)-5))
 			}
 		}
 		s.WriteString("\n")
 	}
 	
-	s.WriteString("Press Enter to create, Esc/Ctrl+C to quit")
+	s.WriteString("Use ↑/↓ to navigate, Enter to create worktree, Esc/Ctrl+C to quit")
 	
 	return s.String()
 }
