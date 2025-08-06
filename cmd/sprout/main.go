@@ -41,6 +41,11 @@ func main() {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
+	case "prune":
+		if err := handlePruneCommand(); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
 	case "doctor":
 		handleDoctorCommand(cfg)
 	case "help", "--help", "-h":
@@ -167,6 +172,46 @@ func handleListCommand() error {
 	return nil
 }
 
+func handlePruneCommand() error {
+	wm, err := git.NewWorktreeManager()
+	if err != nil {
+		return err
+	}
+	
+	worktrees, err := wm.ListWorktrees()
+	if err != nil {
+		return err
+	}
+	
+	var mergedWorktrees []git.Worktree
+	for _, wt := range worktrees {
+		// Filter out main/master branches and only include merged PRs
+		if wt.Branch != "master" && wt.Branch != "main" && wt.Branch != "" && wt.PRStatus == "Merged" {
+			mergedWorktrees = append(mergedWorktrees, wt)
+		}
+	}
+	
+	if len(mergedWorktrees) == 0 {
+		fmt.Println("No worktrees with merged PRs found")
+		return nil
+	}
+	
+	fmt.Printf("%-20s %-10s %s\n", "BRANCH", "PR STATUS", "COMMIT")
+	fmt.Println(strings.Repeat("-", 40))
+	
+	for _, wt := range mergedWorktrees {
+		commit := wt.Commit
+		if len(commit) > 8 {
+			commit = commit[:8]
+		}
+		fmt.Printf("%-20s %-10s %s\n", wt.Branch, wt.PRStatus, commit)
+	}
+	
+	fmt.Printf("\n%d worktree(s) ready to be pruned\n", len(mergedWorktrees))
+	
+	return nil
+}
+
 func handleDoctorCommand(cfg *config.Config) {
 	fmt.Println("Sprout Configuration")
 	fmt.Println("===================")
@@ -206,6 +251,7 @@ func printHelp() {
 	fmt.Println("Usage:")
 	fmt.Println("  sprout                              Start in interactive mode")
 	fmt.Println("  sprout list                         List all worktrees")
+	fmt.Println("  sprout prune                        List worktrees with merged PRs")
 	fmt.Println("  sprout create <branch>              Create worktree and output path")
 	fmt.Println("  sprout create <branch> <command>    Create worktree and run command in it")
 	fmt.Println("  sprout doctor                       Show configuration values")
