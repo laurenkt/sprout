@@ -9,6 +9,7 @@ import (
 	
 	"sprout/pkg/config"
 	"sprout/pkg/git"
+	"sprout/pkg/ui"
 )
 
 func main() {
@@ -41,8 +42,10 @@ func main() {
 		}
 		
 		// Interactive mode
-		fmt.Println("Starting Sprout in interactive mode...")
-		// TODO: Launch TUI
+		if err := ui.RunInteractive(); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
