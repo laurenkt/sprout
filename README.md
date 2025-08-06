@@ -43,12 +43,30 @@ sprout list
 # One-shot worktree creation
 sprout create [branch-name]
 
-# One-shot with command execution
-sprout create [branch-name] [command...]
+# Create worktree and run command in it
+sprout create [branch-name] [command] [args...]
 
 # Check configuration and connectivity
 sprout doctor
 ```
+
+### Command Examples
+
+```bash
+# Create worktree and change to it
+cd "$(sprout create mybranch)"
+
+# Create worktree and open in VS Code
+sprout create mybranch code .
+
+# Create worktree and start a shell
+sprout create mybranch bash
+
+# Create worktree and run git status
+sprout create mybranch git status
+```
+
+**Note**: When running commands with `sprout create`, the worktree directory is printed to stderr after command execution for easy reference.
 
 ## Requirements
 
@@ -67,9 +85,9 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
   // If not specified, exits cleanly without running any command
   "defaultCommand": "code .",
   
-  // Linear API token for issue tracking integration
-  // Get your token from Linear Settings > Account > Security & Access
-  "linearApiToken": "lin_api_YOUR_TOKEN_HERE"
+  // Linear API key for issue tracking integration
+  // Get your key from Linear Settings > Account > Security & Access
+  "linearApiKey": "lin_api_YOUR_KEY_HERE"
 }
 ```
 
@@ -80,11 +98,11 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
   - `"nvim"` - Open in Neovim
   - `"bash"` - Start a new shell session
   
-- **`linearApiToken`**: Your Linear personal API token for accessing Linear tickets. Required for Linear integration features.
+- **`linearApiKey`**: Your Linear personal API key for accessing Linear tickets. Required for Linear integration features.
 
 ### Linear Integration
 
-When configured with a Linear API token, Sprout displays your assigned tickets in interactive mode:
+When configured with a Linear API key, Sprout displays your assigned tickets in interactive mode:
 
 ```
 🌱 Sprout - Create New Worktree
@@ -99,7 +117,7 @@ Enter branch name: │
 Press Enter to create, Esc/Ctrl+C to quit
 ```
 
-To get your Linear API token:
+To get your Linear API key:
 1. Go to Linear Settings > Account > Security & Access
 2. Create a new personal API key
 3. Add it to your `~/.sprout.json5` configuration
@@ -115,5 +133,5 @@ sprout doctor
 This will show:
 - Configuration file path and status
 - Default command setting
-- Linear API token (masked for security)
+- Linear API key (masked for security)
 - Linear connection status and user information

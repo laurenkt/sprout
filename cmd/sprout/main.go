@@ -92,11 +92,13 @@ func handleCreateCommand(args []string) error {
 			if err := cmd.Run(); err != nil {
 				if exitError, ok := err.(*exec.ExitError); ok {
 					if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+						fmt.Fprintf(os.Stderr, "\nWorktree directory: %s\n", worktreePath)
 						os.Exit(status.ExitStatus())
 					}
 				}
 				return fmt.Errorf("default command failed: %w", err)
 			}
+			fmt.Fprintf(os.Stderr, "\nWorktree directory: %s\n", worktreePath)
 			return nil
 		}
 		
@@ -118,12 +120,14 @@ func handleCreateCommand(args []string) error {
 	if err := cmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+				fmt.Fprintf(os.Stderr, "\nWorktree directory: %s\n", worktreePath)
 				os.Exit(status.ExitStatus())
 			}
 		}
 		return fmt.Errorf("command failed: %w", err)
 	}
 	
+	fmt.Fprintf(os.Stderr, "\nWorktree directory: %s\n", worktreePath)
 	return nil
 }
 
@@ -169,6 +173,12 @@ func handleDoctorCommand(cfg *config.Config) {
 	fmt.Println("===================")
 	fmt.Printf("Default Command: %s\n", cfg.DefaultCommand)
 	
+	if cfg.GetLinearAPIKey() != "" {
+		fmt.Printf("Linear API Key: configured\n")
+	} else {
+		fmt.Printf("Linear API Key: not configured\n")
+	}
+	
 	configPath, err := getConfigPath()
 	if err != nil {
 		fmt.Printf("Config Path: <error: %v>\n", err)
@@ -187,19 +197,19 @@ func handleDoctorCommand(cfg *config.Config) {
 	fmt.Println("Linear Integration")
 	fmt.Println("=================")
 	
-	if cfg.LinearAPIToken == "" {
-		fmt.Println("Linear API Token: not configured")
+	if cfg.LinearAPIKey == "" {
+		fmt.Println("Linear API Key: not configured")
 		fmt.Println("Linear Status: disabled")
 	} else {
-		// Mask the token for security
-		maskedToken := cfg.LinearAPIToken
-		if len(maskedToken) > 8 {
-			maskedToken = maskedToken[:8] + "..." + maskedToken[len(maskedToken)-4:]
+		// Mask the key for security
+		maskedKey := cfg.LinearAPIKey
+		if len(maskedKey) > 8 {
+			maskedKey = maskedKey[:8] + "..." + maskedKey[len(maskedKey)-4:]
 		}
-		fmt.Printf("Linear API Token: %s\n", maskedToken)
+		fmt.Printf("Linear API Key: %s\n", maskedKey)
 		
 		fmt.Print("Linear Status: testing connection... ")
-		testLinearConnection(cfg.LinearAPIToken)
+		testLinearConnection(cfg.LinearAPIKey)
 	}
 }
 
@@ -211,8 +221,8 @@ func getConfigPath() (string, error) {
 	return fmt.Sprintf("%s/.sprout.json5", homeDir), nil
 }
 
-func testLinearConnection(apiToken string) {
-	client := linear.NewClient(apiToken)
+func testLinearConnection(apiKey string) {
+	client := linear.NewClient(apiKey)
 	
 	user, err := client.GetCurrentUser()
 	if err != nil {

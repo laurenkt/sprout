@@ -44,14 +44,14 @@ type User struct {
 
 // Client is a Linear API client
 type Client struct {
-	apiToken   string
+	apiKey     string
 	httpClient *http.Client
 }
 
 // NewClient creates a new Linear API client
-func NewClient(apiToken string) *Client {
+func NewClient(apiKey string) *Client {
 	return &Client{
-		apiToken: apiToken,
+		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -94,7 +94,7 @@ func (c *Client) makeRequest(query string, variables interface{}) (*GraphQLRespo
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", c.apiToken)
+	httpReq.Header.Set("Authorization", c.apiKey)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

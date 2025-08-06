@@ -37,7 +37,7 @@ func NewTUI() (model, error) {
 		return model{}, err
 	}
 
-	// Load config to check for Linear API token
+	// Load config to check for Linear API key
 	cfg, err := config.Load()
 	if err != nil {
 		cfg = config.DefaultConfig()
@@ -45,8 +45,8 @@ func NewTUI() (model, error) {
 
 	var linearClient *linear.Client
 	linearLoading := false
-	if cfg.LinearAPIToken != "" {
-		linearClient = linear.NewClient(cfg.LinearAPIToken)
+	if cfg.LinearAPIKey != "" {
+		linearClient = linear.NewClient(cfg.LinearAPIKey)
 		linearLoading = true // We'll start loading immediately in Init
 	}
 
