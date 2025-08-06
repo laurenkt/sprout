@@ -10,6 +10,7 @@ Sprout simplifies git worktree management by providing both interactive and comm
 
 ### Git Worktree Management
 - **List existing worktrees**: View all worktrees with branch names, PR status, and commit information
+- **Identify merge-ready worktrees**: List worktrees with merged PRs that are ready for pruning
 - **Create worktrees from any location**: Generate new worktrees from the current repository, regardless of which worktree you're currently in
 - **Flexible branch naming**: Optionally specify branch names or let Linear integration handle it automatically
 - **Intelligent input parsing**: Enter as much or as little information as you want - Sprout figures out the rest
@@ -39,6 +40,9 @@ sprout
 
 # List all worktrees with PR status
 sprout list
+
+# List worktrees with merged PRs (ready to prune)
+sprout prune
 
 # One-shot worktree creation
 sprout create [branch-name]
