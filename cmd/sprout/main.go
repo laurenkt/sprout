@@ -89,8 +89,35 @@ func handleCreateCommand(args []string) error {
 	
 	fmt.Fprintf(os.Stderr, "Worktree ready at: %s\n", worktreePath)
 	
-	// If no command provided, output path for shell evaluation
+	// If no command provided, check for default command
 	if len(args) == 1 {
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Printf("Warning: Failed to load config: %v\n", err)
+			cfg = config.DefaultConfig()
+		}
+		
+		defaultCmd := cfg.GetDefaultCommand()
+		if len(defaultCmd) > 0 {
+			// Execute the default command in the worktree directory
+			cmd := exec.Command(defaultCmd[0], defaultCmd[1:]...)
+			cmd.Dir = worktreePath
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			
+			if err := cmd.Run(); err != nil {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+						os.Exit(status.ExitStatus())
+					}
+				}
+				return fmt.Errorf("default command failed: %w", err)
+			}
+			return nil
+		}
+		
+		// No default command, output path for shell evaluation
 		fmt.Print(worktreePath)
 		return nil
 	}
