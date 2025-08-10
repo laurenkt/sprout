@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,94 +18,95 @@ import (
 )
 
 type model struct {
-	textInput         textinput.Model
-	subtaskInput      textinput.Model
-	submitted         bool
-	creating          bool
-	done              bool
-	success           bool
-	cancelled         bool
-	errorMsg          string
-	result            string
-	worktreePath      string
-	worktreeManager   git.WorktreeManagerInterface
-	linearClient      *linear.Client
-	linearIssues      []linear.Issue
-	flattenedIssues   []linear.Issue // flattened view for navigation
-	linearLoading     bool
-	linearError       string
-	selectedIndex     int  // -1 for custom input, 0+ for Linear ticket index
-	inputMode         bool // true when in custom input mode, false when selecting tickets
-	creatingSubtask   bool // true while creating subtask
-	subtaskInputMode  bool // true when editing subtask inline
-	subtaskParentID   string // ID of parent issue when creating subtask
+	textInput        textinput.Model
+	subtaskInput     textinput.Model
+	spinner          spinner.Model
+	submitted        bool
+	creating         bool
+	done             bool
+	success          bool
+	cancelled        bool
+	errorMsg         string
+	result           string
+	worktreePath     string
+	worktreeManager  git.WorktreeManagerInterface
+	linearClient     *linear.Client
+	linearIssues     []linear.Issue
+	flattenedIssues  []linear.Issue // flattened view for navigation
+	linearLoading    bool
+	linearError      string
+	selectedIndex    int    // -1 for custom input, 0+ for Linear ticket index
+	inputMode        bool   // true when in custom input mode, false when selecting tickets
+	creatingSubtask  bool   // true while creating subtask
+	subtaskInputMode bool   // true when editing subtask inline
+	subtaskParentID  string // ID of parent issue when creating subtask
 }
 
 var (
 	// Base colors - subtle and minimalist
-	primaryColor   = lipgloss.Color("69")   // Blue
-	secondaryColor = lipgloss.Color("243")  // Gray
-	accentColor    = lipgloss.Color("108")  // Green
-	errorColor     = lipgloss.Color("204")  // Red
-	warningColor   = lipgloss.Color("221")  // Yellow
-	
+	primaryColor   = lipgloss.Color("69")  // Blue
+	secondaryColor = lipgloss.Color("243") // Gray
+	accentColor    = lipgloss.Color("108") // Green
+	errorColor     = lipgloss.Color("204") // Red
+	warningColor   = lipgloss.Color("221") // Yellow
+
 	// Header style
 	headerStyle = lipgloss.NewStyle().
-		Foreground(primaryColor).
-		Bold(true).
-		MarginBottom(1)
-	
+			Foreground(primaryColor).
+			Bold(true).
+			MarginBottom(1)
+
 	// Selected item style - subtle highlight
 	selectedStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("237")).
-		Bold(true)
-	
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("237")).
+			Bold(true)
+
 	// Normal item style
 	normalStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252"))
-	
+			Foreground(lipgloss.Color("252"))
+
 	// Tree expansion indicators
 	expandedStyle = lipgloss.NewStyle().
-		Foreground(secondaryColor)
-	
+			Foreground(secondaryColor)
+
 	// Issue identifier style
 	identifierStyle = lipgloss.NewStyle().
-		Foreground(primaryColor)
-	
+			Foreground(primaryColor)
+
 	// Issue title style
 	titleStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252"))
-	
+			Foreground(lipgloss.Color("252"))
+
 	// Add subtask style
 	addSubtaskStyle = lipgloss.NewStyle().
-		Foreground(accentColor).
-		Italic(true)
-	
+			Foreground(accentColor).
+			Italic(true)
+
 	// Input cursor style
 	cursorStyle = lipgloss.NewStyle().
-		Foreground(primaryColor).
-		Background(lipgloss.Color("237"))
-	
+			Foreground(primaryColor).
+			Background(lipgloss.Color("237"))
+
 	// Status messages
 	successStyle = lipgloss.NewStyle().
-		Foreground(accentColor).
-		Bold(true)
-	
+			Foreground(accentColor).
+			Bold(true)
+
 	errorStyle = lipgloss.NewStyle().
-		Foreground(errorColor).
-		Bold(true)
-	
+			Foreground(errorColor).
+			Bold(true)
+
 	// Loading style
 	loadingStyle = lipgloss.NewStyle().
-		Foreground(warningColor).
-		Italic(true)
-	
+			Foreground(warningColor).
+			Italic(true)
+
 	// Help text style
 	helpStyle = lipgloss.NewStyle().
-		Foreground(secondaryColor).
-		Italic(true).
-		MarginTop(1)
+			Foreground(secondaryColor).
+			Italic(true).
+			MarginTop(1)
 )
 
 func NewTUI() (model, error) {
@@ -137,9 +139,9 @@ func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 	ti.CharLimit = 156
 	ti.Width = 80
 	ti.Prompt = "> "
-	
+
 	// Style the text input
-	ti.PromptStyle = selectedStyle  // Use selected style when focused
+	ti.PromptStyle = selectedStyle // Use selected style when focused
 	ti.TextStyle = titleStyle
 	ti.PlaceholderStyle = helpStyle
 	ti.CursorStyle = cursorStyle
@@ -149,49 +151,60 @@ func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 	si.Placeholder = "enter subtask title"
 	si.CharLimit = 100
 	si.Width = 50
-	si.Prompt = ""  // No prompt for inline editing
-	
+	si.Prompt = "" // No prompt for inline editing
+
 	// Style the subtask input
 	si.TextStyle = titleStyle
 	si.PlaceholderStyle = helpStyle
 	si.CursorStyle = cursorStyle
 
+	// Initialize spinner
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(warningColor)
+
 	return model{
-		textInput:         ti,
-		subtaskInput:      si,
-		submitted:         false,
-		creating:          false,
-		done:              false,
-		success:           false,
-		cancelled:         false,
-		errorMsg:          "",
-		result:            "",
-		worktreePath:      "",
-		worktreeManager:   wm,
-		linearClient:      linearClient,
-		linearIssues:      nil,
-		flattenedIssues:   nil,
-		linearLoading:     linearLoading,
-		linearError:       "",
-		selectedIndex:     -1, // Start with custom input selected
-		inputMode:         true,
-		creatingSubtask:   false,
-		subtaskInputMode:  false,
-		subtaskParentID:   "",
+		textInput:        ti,
+		subtaskInput:     si,
+		spinner:          s,
+		submitted:        false,
+		creating:         false,
+		done:             false,
+		success:          false,
+		cancelled:        false,
+		errorMsg:         "",
+		result:           "",
+		worktreePath:     "",
+		worktreeManager:  wm,
+		linearClient:     linearClient,
+		linearIssues:     nil,
+		flattenedIssues:  nil,
+		linearLoading:    linearLoading,
+		linearError:      "",
+		selectedIndex:    -1, // Start with custom input selected
+		inputMode:        true,
+		creatingSubtask:  false,
+		subtaskInputMode: false,
+		subtaskParentID:  "",
 	}, nil
 }
 
 func (m model) Init() tea.Cmd {
 	var cmds []tea.Cmd
-	
+
 	// Start with text input focus
 	cmds = append(cmds, textinput.Blink)
-	
+
 	// Fetch Linear issues if client is available
 	if m.linearClient != nil {
 		cmds = append(cmds, m.fetchLinearIssues())
 	}
-	
+
+	// Start spinner if we have any loading states
+	if m.linearLoading || m.creating || m.creatingSubtask {
+		cmds = append(cmds, m.spinner.Tick)
+	}
+
 	if len(cmds) > 0 {
 		return tea.Batch(cmds...)
 	}
@@ -217,7 +230,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.subtaskInput.Blur()
 				return m, nil
 			}
-			
+
 			m.cancelled = true
 			return m, tea.Quit
 
@@ -233,9 +246,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.creatingSubtask = true
 					m.subtaskInputMode = false
 					m.subtaskInput.Blur()
-					return m, m.createSubtaskInline(m.subtaskParentID, title)
+					return m, tea.Batch(m.createSubtaskInline(m.subtaskParentID, title), m.spinner.Tick)
 				}
-				
+
 				// Regular worktree creation logic
 				var branchName string
 				if m.selectedIndex == -1 {
@@ -248,22 +261,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Using selected Linear ticket
 					if m.selectedIndex < len(m.flattenedIssues) {
 						selectedIssue := m.flattenedIssues[m.selectedIndex]
-						
+
 						// Don't create worktree for "Add subtask" placeholders that aren't being edited
 						if selectedIssue.IsAddSubtask {
 							return m, nil
 						}
-						
+
 						branchName = selectedIssue.GetBranchName()
 					} else {
 						return m, nil // Invalid selection
 					}
 				}
-				
+
 				m.submitted = true
 				m.creating = true
 				m.textInput.SetValue(branchName) // Set the input to the selected branch name
-				return m, m.createWorktree()
+				return m, tea.Batch(m.createWorktree(), m.spinner.Tick)
 			}
 
 		case tea.KeyUp:
@@ -307,7 +320,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyRight:
 			if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
 				selectedIssue := &m.flattenedIssues[m.selectedIndex]
-				
+
 				if selectedIssue.IsAddSubtask {
 					// Start subtask input mode
 					m.subtaskInputMode = true
@@ -334,7 +347,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyLeft:
 			if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
 				selectedIssue := &m.flattenedIssues[m.selectedIndex]
-				
+
 				if selectedIssue.IsAddSubtask {
 					// For add subtask items, collapse their parent instead
 					m.updateIssueExpansion(selectedIssue.SubtaskParentID, false)
@@ -387,21 +400,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case childrenErrorMsg:
 		// Could show error message or silently fail
-	
+
 	case subtaskCreatedMsg:
 		m.creatingSubtask = false
-		
+
 		// Clear subtask input
 		m.subtaskInput.SetValue("")
 		m.subtaskInput.Blur()
 		m.subtaskInputMode = false
 		m.subtaskParentID = ""
-		
+
 		// Add the newly created subtask to the parent's children and expand
 		m.addSubtaskToParent(msg.parentID, msg.subtask)
 		m.updateIssueExpansion(msg.parentID, true)
 		m.flattenIssues()
-		
+
 		// Find and select the newly created subtask
 		for i, issue := range m.flattenedIssues {
 			if issue.ID == msg.subtask.ID {
@@ -410,13 +423,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-	
+
 	case subtaskErrorMsg:
 		m.creatingSubtask = false
 		m.done = true
 		m.success = false
 		m.errorMsg = fmt.Sprintf("Failed to create subtask: %s", msg.err.Error())
 		return m, tea.Quit
+	}
+
+	// Update spinner if any loading state is active
+	if m.linearLoading || m.creating || m.creatingSubtask {
+		var spinnerCmd tea.Cmd
+		m.spinner, spinnerCmd = m.spinner.Update(msg)
+		if cmd != nil {
+			return m, tea.Batch(cmd, spinnerCmd)
+		}
+		cmd = spinnerCmd
 	}
 
 	// Update text inputs based on current mode
@@ -444,19 +467,19 @@ func (m model) createWorktree() tea.Cmd {
 // and including "add subtask" placeholders where appropriate
 func (m *model) flattenIssues() {
 	m.flattenedIssues = []linear.Issue{}
-	
+
 	var flatten func(issues []linear.Issue, depth int)
 	flatten = func(issues []linear.Issue, depth int) {
 		for _, issue := range issues {
 			issue.Depth = depth
 			m.flattenedIssues = append(m.flattenedIssues, issue)
-			
+
 			if issue.Expanded {
 				// Add children if they exist
 				if len(issue.Children) > 0 {
 					flatten(issue.Children, depth+1)
 				}
-				
+
 				// Always add an "add subtask" placeholder when expanded
 				addSubtaskPlaceholder := linear.Issue{
 					ID:              "", // Empty ID indicates this is a placeholder
@@ -473,7 +496,7 @@ func (m *model) flattenIssues() {
 			}
 		}
 	}
-	
+
 	flatten(m.linearIssues, 0)
 }
 
@@ -569,7 +592,6 @@ func (m *model) addSubtaskToParent(parentID string, subtask linear.Issue) {
 	addToParent(&m.linearIssues)
 }
 
-
 type errMsg struct {
 	err error
 }
@@ -615,17 +637,17 @@ func (m model) View() string {
 	}
 
 	if m.creating {
-		return loadingStyle.Render("Creating worktree...")
+		return fmt.Sprintf("%s Creating worktree...", m.spinner.View())
 	}
-	
+
 	if m.creatingSubtask {
-		return loadingStyle.Render("Creating subtask...")
+		return fmt.Sprintf("%s Creating subtask...", m.spinner.View())
 	}
 
 	s := strings.Builder{}
 	s.WriteString(headerStyle.Render("🌱 sprout"))
 	s.WriteString("\n")
-	
+
 	// Input using textinput component - adjust prompt style based on selection
 	if m.selectedIndex == -1 {
 		// When input is selected, use selected style for prompt
@@ -634,14 +656,14 @@ func (m model) View() string {
 		// When input is not selected, use normal style
 		m.textInput.PromptStyle = lipgloss.NewStyle().Foreground(primaryColor)
 	}
-	
+
 	s.WriteString(m.textInput.View())
 	s.WriteString("\n")
-	
+
 	// Display Linear tickets tree if available
 	if m.linearClient != nil {
 		if m.linearLoading {
-			s.WriteString(loadingStyle.Render("Loading tickets..."))
+			s.WriteString(fmt.Sprintf("%s Loading tickets...", m.spinner.View()))
 		} else if m.linearError != "" {
 			s.WriteString(errorStyle.Render("Error: " + m.linearError))
 		} else if len(m.linearIssues) == 0 {
@@ -651,10 +673,9 @@ func (m model) View() string {
 			s.WriteString(treeView)
 		}
 	}
-	
+
 	return s.String()
 }
-
 
 func (m model) renderTreeLine(identifier, title string, maxLen int, isTree, isAddSubtask bool) string {
 	var styledIdentifier string
@@ -665,14 +686,14 @@ func (m model) renderTreeLine(identifier, title string, maxLen int, isTree, isAd
 	} else {
 		styledIdentifier = identifierStyle.Render(identifier)
 	}
-	
+
 	paddedIdentifier := fmt.Sprintf("%-*s", maxLen+10, styledIdentifier) // Extra padding for color codes
 	return fmt.Sprintf(" %s  %s", paddedIdentifier, title)
 }
 
 func (m model) renderIssueTreeLine(issue linear.Issue, index int, maxLen int) string {
 	var displayTitle string
-	
+
 	// Handle inline editing for add subtask placeholders
 	if issue.IsAddSubtask && issue.EditingTitle {
 		displayTitle = ""
@@ -696,19 +717,19 @@ func (m model) renderIssueTreeLine(issue linear.Issue, index int, maxLen int) st
 			displayTitle = titleStyle.Render(title)
 		}
 	}
-	
+
 	// Create tree structure
 	treePrefix := strings.Repeat("  ", issue.Depth)
 	expandIndicator := getTreeIndicator(issue)
 	styledIndicator := expandedStyle.Render(expandIndicator)
-	
+
 	identifier := issue.Identifier
 	if issue.IsAddSubtask {
 		identifier = ""
 	}
-	
+
 	identifierWithTree := treePrefix + styledIndicator + identifierStyle.Render(identifier)
-	
+
 	return m.renderTreeLine(identifierWithTree, displayTitle, maxLen, true, issue.IsAddSubtask)
 }
 
@@ -716,19 +737,19 @@ func (m model) buildSimpleLinearTree() string {
 	if len(m.flattenedIssues) == 0 {
 		return ""
 	}
-	
+
 	// Build tree using lipgloss tree library from flattened issues
 	// This properly creates nested sub-trees for child issues
 	root := tree.Root("").
 		ItemStyle(normalStyle).
 		EnumeratorStyle(expandedStyle)
-	
+
 	// Stack to track parent nodes at each depth level
 	nodeStack := []*tree.Tree{root}
-	
+
 	for i, issue := range m.flattenedIssues {
 		targetDepth := issue.Depth
-		
+
 		// Adjust stack to match the target depth
 		// If we're going to a deeper level, keep adding to stack
 		// If we're going to a shallower level, pop from stack
@@ -736,7 +757,7 @@ func (m model) buildSimpleLinearTree() string {
 			// Going shallower - pop nodes until we're at the right level
 			nodeStack = nodeStack[:targetDepth+1]
 		}
-		
+
 		// Create the display content
 		var content string
 		if issue.IsAddSubtask {
@@ -754,18 +775,18 @@ func (m model) buildSimpleLinearTree() string {
 			titleText := titleStyle.Render(title)
 			content = fmt.Sprintf("%s  %s", identifier, titleText)
 		}
-		
+
 		// Apply selection styling if this is the selected item
 		if m.selectedIndex == i {
 			content = selectedStyle.Render(content)
 		} else {
 			content = normalStyle.Render(content)
 		}
-		
+
 		// Add to the appropriate parent in the tree
 		currentParent := nodeStack[len(nodeStack)-1]
 		newNode := currentParent.Child(content)
-		
+
 		// If this is not an "Add subtask" item, it could have children
 		// So add it to the stack for potential children
 		if !issue.IsAddSubtask {
@@ -777,7 +798,7 @@ func (m model) buildSimpleLinearTree() string {
 			}
 		}
 	}
-	
+
 	return root.String()
 }
 
@@ -826,7 +847,7 @@ func RunInteractive() error {
 		if err != nil {
 			cfg = config.DefaultConfig()
 		}
-		
+
 		defaultCmd := cfg.GetDefaultCommand()
 		if len(defaultCmd) > 0 {
 			// Execute the default command in the worktree directory
@@ -835,7 +856,7 @@ func RunInteractive() error {
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
-			
+
 			if err := cmd.Run(); err != nil {
 				if exitError, ok := err.(*exec.ExitError); ok {
 					if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
