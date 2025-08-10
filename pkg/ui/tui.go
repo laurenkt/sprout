@@ -310,25 +310,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.subtaskParentID = selectedIssue.SubtaskParentID
 					m.subtaskInput.SetValue("")
 					m.subtaskInput.Focus()
-				} else if selectedIssue.HasChildren {
-					// Regular issue - expand/collapse
+				} else {
+					// Always expand - either to show children or the "add subtask" option
 					if !selectedIssue.Expanded {
-						// Expand: fetch children if not already loaded
-						if len(selectedIssue.Children) == 0 {
+						if selectedIssue.HasChildren && len(selectedIssue.Children) == 0 {
+							// Fetch children and expand
 							return m, m.fetchChildren(selectedIssue.ID)
 						} else {
-							// Already loaded, just expand
+							// Expand immediately (either shows existing children or just the "add subtask" option)
 							m.updateIssueExpansion(selectedIssue.ID, true)
 							m.flattenIssues()
 						}
-					} else {
-						// Collapse
-						m.updateIssueExpansion(selectedIssue.ID, false)
-						m.flattenIssues()
 					}
-				} else {
-					// Issue without children - expand to show "add subtask" option
-					m.updateIssueExpansion(selectedIssue.ID, true)
+					// If already expanded, do nothing (already showing children/add subtask option)
+				}
+			}
+			return m, nil
+
+		case tea.KeyLeft:
+			if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
+				selectedIssue := &m.flattenedIssues[m.selectedIndex]
+				
+				if selectedIssue.IsAddSubtask {
+					// For add subtask items, collapse their parent instead
+					m.updateIssueExpansion(selectedIssue.SubtaskParentID, false)
+					m.flattenIssues()
+					// Move selection to the parent
+					for i, issue := range m.flattenedIssues {
+						if issue.ID == selectedIssue.SubtaskParentID {
+							m.selectedIndex = i
+							break
+						}
+					}
+				} else if selectedIssue.Expanded {
+					// Always collapse when left arrow is pressed on an expanded issue
+					m.updateIssueExpansion(selectedIssue.ID, false)
 					m.flattenIssues()
 				}
 			}
@@ -693,71 +709,72 @@ func (m model) renderIssueTreeLine(issue linear.Issue, index int, maxLen int) st
 }
 
 func (m model) buildSimpleLinearTree() string {
-	if len(m.linearIssues) == 0 {
+	if len(m.flattenedIssues) == 0 {
 		return ""
 	}
 	
-	// Create a simple tree showing only top-level issues by default
-	t := tree.Root("").
+	// Build tree using lipgloss tree library from flattened issues
+	// This properly creates nested sub-trees for child issues
+	root := tree.Root("").
 		ItemStyle(normalStyle).
 		EnumeratorStyle(expandedStyle)
 	
-	for i, issue := range m.linearIssues {
-		// Create display text: "IDENTIFIER  Title"
-		title := issue.Title
-		if len(title) > 50 {
-			title = title[:47] + "..."
+	// Stack to track parent nodes at each depth level
+	nodeStack := []*tree.Tree{root}
+	
+	for i, issue := range m.flattenedIssues {
+		targetDepth := issue.Depth
+		
+		// Adjust stack to match the target depth
+		// If we're going to a deeper level, keep adding to stack
+		// If we're going to a shallower level, pop from stack
+		if targetDepth < len(nodeStack)-1 {
+			// Going shallower - pop nodes until we're at the right level
+			nodeStack = nodeStack[:targetDepth+1]
 		}
 		
-		displayText := fmt.Sprintf("%s  %s", 
-			identifierStyle.Render(issue.Identifier), 
-			titleStyle.Render(title))
+		// Create the display content
+		var content string
+		if issue.IsAddSubtask {
+			if m.subtaskInputMode && m.subtaskParentID == issue.SubtaskParentID {
+				content = m.subtaskInput.View()
+			} else {
+				content = addSubtaskStyle.Render("+ Add subtask")
+			}
+		} else {
+			title := issue.Title
+			if len(title) > 50 {
+				title = title[:47] + "..."
+			}
+			identifier := identifierStyle.Render(issue.Identifier)
+			titleText := titleStyle.Render(title)
+			content = fmt.Sprintf("%s  %s", identifier, titleText)
+		}
 		
 		// Apply selection styling if this is the selected item
-		var itemStyle lipgloss.Style
 		if m.selectedIndex == i {
-			itemStyle = selectedStyle
+			content = selectedStyle.Render(content)
 		} else {
-			itemStyle = normalStyle
+			content = normalStyle.Render(content)
 		}
 		
-		// Create the main issue node
-		issueNode := t.Child(itemStyle.Render(displayText))
+		// Add to the appropriate parent in the tree
+		currentParent := nodeStack[len(nodeStack)-1]
+		newNode := currentParent.Child(content)
 		
-		// If this issue is expanded and has children, add them as a nested tree
-		if issue.Expanded && len(issue.Children) > 0 {
-			childTree := tree.New()
-			for j, child := range issue.Children {
-				childTitle := child.Title
-				if len(childTitle) > 45 {
-					childTitle = childTitle[:42] + "..."
-				}
-				
-				childDisplayText := fmt.Sprintf("%s  %s", 
-					identifierStyle.Render(child.Identifier), 
-					titleStyle.Render(childTitle))
-				
-				// Check if this child is selected (accounting for flattened index)
-				var childStyle lipgloss.Style
-				flatIndex := i + 1 + j // Approximate flattened index
-				if m.selectedIndex == flatIndex {
-					childStyle = selectedStyle
-				} else {
-					childStyle = normalStyle
-				}
-				
-				childTree.Root("").Child(childStyle.Render(childDisplayText))
+		// If this is not an "Add subtask" item, it could have children
+		// So add it to the stack for potential children
+		if !issue.IsAddSubtask {
+			// Only add to stack if we need to go deeper
+			if targetDepth+1 >= len(nodeStack) {
+				nodeStack = append(nodeStack, newNode)
+			} else {
+				nodeStack[targetDepth+1] = newNode
 			}
-			
-			// Add "Add subtask" option when expanded
-			addSubtaskText := m.renderSubtaskInput(issue.ID)
-			childTree.Root("").Child(addSubtaskText)
-			
-			issueNode.Child(childTree)
 		}
 	}
 	
-	return t.String()
+	return root.String()
 }
 
 func (m model) renderSubtaskInput(parentID string) string {
