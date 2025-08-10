@@ -1,10 +1,15 @@
 package ui
 
 import (
+	"io"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/exp/teatest"
+	"github.com/muesli/termenv"
+	"sprout/pkg/git"
 	"sprout/pkg/linear"
 )
 
@@ -153,17 +158,162 @@ func TestNavigation(t *testing.T) {
 	}
 }
 
-// TestCatwalkSimple tests using catwalk with a simple test file
-func TestCatwalkSimple(t *testing.T) {
-	// Create a more complete model for catwalk testing
-	// This will use real NewTUI but will fail gracefully without git repo
-	t.Skip("Catwalk test requires full git repository setup - skipping for now")
+// TestMockWorktreeManager tests the mock worktree manager functionality
+func TestMockWorktreeManager(t *testing.T) {
+	// Create a mock worktree manager for testing
+	mockWM := git.NewMockWorktreeManager("/tmp/test-repo")
 	
-	// Uncomment and adjust when running in proper git repo:
-	// model, err := NewTUI()
-	// if err != nil {
-	// 	t.Skip("NewTUI failed - likely not in git repo:", err)
-	// }
-	// 
-	// catwalk.RunModel(t, "testdata/simple.txt", model, nil)
+	// Test worktree creation
+	path, err := mockWM.CreateWorktree("test-branch")
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+	if path == "" {
+		t.Error("CreateWorktree returned empty path")
+	}
+	
+	// Test worktree listing
+	worktrees, err := mockWM.ListWorktrees()
+	if err != nil {
+		t.Fatalf("ListWorktrees failed: %v", err)
+	}
+	if len(worktrees) < 3 { // Should have 2 initial + 1 created
+		t.Errorf("Expected at least 3 worktrees, got %d", len(worktrees))
+	}
+}
+
+// TestTUIWithMock tests the TUI with mock dependencies
+func TestTUIWithMock(t *testing.T) {
+	// Create a mock worktree manager for testing
+	mockWM := git.NewMockWorktreeManager("/tmp/test-repo")
+	
+	// Create model with mock dependencies
+	model, err := NewTUIWithManager(mockWM)
+	if err != nil {
+		t.Fatalf("NewTUIWithManager failed: %v", err)
+	}
+	
+	// Test basic model functionality
+	if model.worktreeManager == nil {
+		t.Fatal("worktreeManager is nil")
+	}
+	
+	// Test that the model can be initialized
+	cmd := model.Init()
+	if cmd == nil {
+		t.Log("Init returned nil command (this is fine)")
+	}
+	
+	// Test that View doesn't panic
+	view := model.View()
+	if view == "" {
+		t.Error("View returned empty string")
+	}
+	t.Log("TUI model works correctly with mock")
+	
+	// Test calling View multiple times to ensure stability
+	for i := 0; i < 5; i++ {
+		view := model.View()
+		if view == "" {
+			t.Errorf("View returned empty string on iteration %d", i)
+		}
+	}
+	
+	// Test Update with different message types
+	updatedModel, updateCmd := model.Update(nil)
+	if updatedModel == nil {
+		t.Error("Update returned nil model")
+	}
+	if updateCmd != nil {
+		t.Log("Update returned a command")
+	}
+}
+
+// Minimal test model to isolate teatest usage
+type minimalModel struct{}
+
+func (m minimalModel) Init() tea.Cmd { return nil }
+func (m minimalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { 
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
+			return m, tea.Quit
+		}
+	}
+	return m, nil 
+}
+func (m minimalModel) View() string { return "Hello World" }
+
+// TestTeatestMinimalGolden tests teatest with golden file output
+func TestTeatestMinimalGolden(t *testing.T) {
+	// Set consistent color profile for testing
+	lipgloss.SetColorProfile(termenv.Ascii)
+	
+	model := minimalModel{}
+	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
+	
+	// Send a quit message to make the program exit
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	
+	// Capture output and compare with golden file
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+// TestTeatestGoldenNavigation tests navigation with deterministic test model
+func TestTeatestGoldenNavigation(t *testing.T) {
+	// Set consistent color profile for testing
+	lipgloss.SetColorProfile(termenv.Ascii)
+	
+	// Use CreateTestModel for deterministic behavior
+	model, err := CreateTestModel()
+	if err != nil {
+		t.Fatalf("CreateTestModel failed: %v", err)
+	}
+	
+	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
+	
+	// Test navigation: down arrow to select first ticket
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	
+	// Send quit message to exit
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	
+	// Capture output and compare with golden file
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+}
+
+// TestTeatestGoldenInteraction tests user interactions with deterministic model
+func TestTeatestGoldenInteraction(t *testing.T) {
+	// Set consistent color profile for testing
+	lipgloss.SetColorProfile(termenv.Ascii)
+	
+	// Use CreateTestModel for deterministic behavior
+	model, err := CreateTestModel()
+	if err != nil {
+		t.Fatalf("CreateTestModel failed: %v", err)
+	}
+	
+	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
+	
+	// Test navigation: down arrow to select first ticket, then up to go back
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	tm.Send(tea.KeyMsg{Type: tea.KeyUp})
+	
+	// Send quit message to exit
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	
+	// Capture output and compare with golden file
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
 }
