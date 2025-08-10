@@ -18,28 +18,28 @@ import (
 )
 
 type model struct {
-	textInput        textinput.Model
-	subtaskInput     textinput.Model
-	spinner          spinner.Model
-	submitted        bool
-	creating         bool
-	done             bool
-	success          bool
-	cancelled        bool
-	errorMsg         string
-	result           string
-	worktreePath     string
-	worktreeManager  git.WorktreeManagerInterface
-	linearClient     *linear.Client
-	linearIssues     []linear.Issue
-	flattenedIssues  []linear.Issue // flattened view for navigation
-	linearLoading    bool
-	linearError      string
-	selectedIndex    int    // -1 for custom input, 0+ for Linear ticket index
-	inputMode        bool   // true when in custom input mode, false when selecting tickets
-	creatingSubtask  bool   // true while creating subtask
-	subtaskInputMode bool   // true when editing subtask inline
-	subtaskParentID  string // ID of parent issue when creating subtask
+	TextInput        textinput.Model
+	SubtaskInput     textinput.Model
+	Spinner          spinner.Model
+	Submitted        bool
+	Creating         bool
+	Done             bool
+	Success          bool
+	Cancelled        bool
+	ErrorMsg         string
+	Result           string
+	WorktreePath     string
+	WorktreeManager  git.WorktreeManagerInterface
+	LinearClient     *linear.Client
+	LinearIssues     []linear.Issue
+	FlattenedIssues  []linear.Issue // flattened view for navigation
+	LinearLoading    bool
+	LinearError      string
+	SelectedIndex    int    // -1 for custom input, 0+ for Linear ticket index
+	InputMode        bool   // true when in custom input mode, false when selecting tickets
+	CreatingSubtask  bool   // true while creating subtask
+	SubtaskInputMode bool   // true when editing subtask inline
+	SubtaskParentID  string // ID of parent issue when creating subtask
 }
 
 var (
@@ -164,28 +164,28 @@ func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 	s.Style = lipgloss.NewStyle().Foreground(warningColor)
 
 	return model{
-		textInput:        ti,
-		subtaskInput:     si,
-		spinner:          s,
-		submitted:        false,
-		creating:         false,
-		done:             false,
-		success:          false,
-		cancelled:        false,
-		errorMsg:         "",
-		result:           "",
-		worktreePath:     "",
-		worktreeManager:  wm,
-		linearClient:     linearClient,
-		linearIssues:     nil,
-		flattenedIssues:  nil,
-		linearLoading:    linearLoading,
-		linearError:      "",
-		selectedIndex:    -1, // Start with custom input selected
-		inputMode:        true,
-		creatingSubtask:  false,
-		subtaskInputMode: false,
-		subtaskParentID:  "",
+		TextInput:        ti,
+		SubtaskInput:     si,
+		Spinner:          s,
+		Submitted:        false,
+		Creating:         false,
+		Done:             false,
+		Success:          false,
+		Cancelled:        false,
+		ErrorMsg:         "",
+		Result:           "",
+		WorktreePath:     "",
+		WorktreeManager:  wm,
+		LinearClient:     linearClient,
+		LinearIssues:     nil,
+		FlattenedIssues:  nil,
+		LinearLoading:    linearLoading,
+		LinearError:      "",
+		SelectedIndex:    -1, // Start with custom input selected
+		InputMode:        true,
+		CreatingSubtask:  false,
+		SubtaskInputMode: false,
+		SubtaskParentID:  "",
 	}, nil
 }
 
@@ -196,13 +196,13 @@ func (m model) Init() tea.Cmd {
 	cmds = append(cmds, textinput.Blink)
 
 	// Fetch Linear issues if client is available
-	if m.linearClient != nil {
+	if m.LinearClient != nil {
 		cmds = append(cmds, m.fetchLinearIssues())
 	}
 
 	// Start spinner if we have any loading states
-	if m.linearLoading || m.creating || m.creatingSubtask {
-		cmds = append(cmds, m.spinner.Tick)
+	if m.LinearLoading || m.Creating || m.CreatingSubtask {
+		cmds = append(cmds, m.Spinner.Tick)
 	}
 
 	if len(cmds) > 0 {
@@ -216,51 +216,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.done {
+		if m.Done {
 			return m, tea.Quit
 		}
 
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			// Check if we're in subtask input mode and exit that
-			if m.subtaskInputMode {
-				m.subtaskInputMode = false
-				m.subtaskParentID = ""
-				m.subtaskInput.SetValue("")
-				m.subtaskInput.Blur()
+			if m.SubtaskInputMode {
+				m.SubtaskInputMode = false
+				m.SubtaskParentID = ""
+				m.SubtaskInput.SetValue("")
+				m.SubtaskInput.Blur()
 				return m, nil
 			}
 
-			m.cancelled = true
+			m.Cancelled = true
 			return m, tea.Quit
 
 		case tea.KeyEnter:
-			if !m.submitted {
+			if !m.Submitted {
 				// Check if we're in subtask input mode
-				if m.subtaskInputMode {
+				if m.SubtaskInputMode {
 					// Creating a new subtask
-					title := strings.TrimSpace(m.subtaskInput.Value())
+					title := strings.TrimSpace(m.SubtaskInput.Value())
 					if title == "" {
 						return m, nil // Don't submit empty subtask title
 					}
-					m.creatingSubtask = true
-					m.subtaskInputMode = false
-					m.subtaskInput.Blur()
-					return m, tea.Batch(m.createSubtaskInline(m.subtaskParentID, title), m.spinner.Tick)
+					m.CreatingSubtask = true
+					m.SubtaskInputMode = false
+					m.SubtaskInput.Blur()
+					return m, tea.Batch(m.createSubtaskInline(m.SubtaskParentID, title), m.Spinner.Tick)
 				}
 
 				// Regular worktree creation logic
 				var branchName string
-				if m.selectedIndex == -1 {
+				if m.SelectedIndex == -1 {
 					// Using custom input
-					if strings.TrimSpace(m.textInput.Value()) == "" {
+					if strings.TrimSpace(m.TextInput.Value()) == "" {
 						return m, nil // Don't submit empty input
 					}
-					branchName = strings.TrimSpace(m.textInput.Value())
+					branchName = strings.TrimSpace(m.TextInput.Value())
 				} else {
 					// Using selected Linear ticket
-					if m.selectedIndex < len(m.flattenedIssues) {
-						selectedIssue := m.flattenedIssues[m.selectedIndex]
+					if m.SelectedIndex < len(m.FlattenedIssues) {
+						selectedIssue := m.FlattenedIssues[m.SelectedIndex]
 
 						// Don't create worktree for "Add subtask" placeholders that aren't being edited
 						if selectedIssue.IsAddSubtask {
@@ -273,80 +273,80 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				m.submitted = true
-				m.creating = true
-				m.textInput.SetValue(branchName) // Set the input to the selected branch name
-				return m, tea.Batch(m.createWorktree(), m.spinner.Tick)
+				m.Submitted = true
+				m.Creating = true
+				m.TextInput.SetValue(branchName) // Set the input to the selected branch name
+				return m, tea.Batch(m.createWorktree(), m.Spinner.Tick)
 			}
 
 		case tea.KeyUp:
-			if !m.submitted {
-				if m.selectedIndex == -1 {
+			if !m.Submitted {
+				if m.SelectedIndex == -1 {
 					// Already at custom input, do nothing or go to last ticket
-					if len(m.flattenedIssues) > 0 {
-						m.selectedIndex = len(m.flattenedIssues) - 1
-						m.inputMode = false
-						m.textInput.Blur()
+					if len(m.FlattenedIssues) > 0 {
+						m.SelectedIndex = len(m.FlattenedIssues) - 1
+						m.InputMode = false
+						m.TextInput.Blur()
 						// Update placeholder with selected issue's branch name
-						if m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
-							m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+						if m.SelectedIndex < len(m.FlattenedIssues) && !m.FlattenedIssues[m.SelectedIndex].IsAddSubtask {
+							m.TextInput.Placeholder = m.FlattenedIssues[m.SelectedIndex].GetBranchName()
 						}
 					}
-				} else if m.selectedIndex > 0 {
-					m.selectedIndex--
+				} else if m.SelectedIndex > 0 {
+					m.SelectedIndex--
 					// Update placeholder with selected issue's branch name
-					if m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
-						m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+					if m.SelectedIndex < len(m.FlattenedIssues) && !m.FlattenedIssues[m.SelectedIndex].IsAddSubtask {
+						m.TextInput.Placeholder = m.FlattenedIssues[m.SelectedIndex].GetBranchName()
 					}
 				} else {
 					// Go back to custom input
-					m.selectedIndex = -1
-					m.inputMode = true
-					m.textInput.Focus()
+					m.SelectedIndex = -1
+					m.InputMode = true
+					m.TextInput.Focus()
 					// Reset placeholder to default
-					m.textInput.Placeholder = "enter branch name or select suggestion below"
+					m.TextInput.Placeholder = "enter branch name or select suggestion below"
 				}
 			}
 			return m, nil
 
 		case tea.KeyDown:
-			if !m.submitted {
-				if m.selectedIndex == -1 && len(m.flattenedIssues) > 0 {
+			if !m.Submitted {
+				if m.SelectedIndex == -1 && len(m.FlattenedIssues) > 0 {
 					// Move from custom input to first ticket
-					m.selectedIndex = 0
-					m.inputMode = false
-					m.textInput.Blur()
+					m.SelectedIndex = 0
+					m.InputMode = false
+					m.TextInput.Blur()
 					// Update placeholder with selected issue's branch name
-					if m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
-						m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+					if m.SelectedIndex < len(m.FlattenedIssues) && !m.FlattenedIssues[m.SelectedIndex].IsAddSubtask {
+						m.TextInput.Placeholder = m.FlattenedIssues[m.SelectedIndex].GetBranchName()
 					}
-				} else if m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues)-1 {
-					m.selectedIndex++
+				} else if m.SelectedIndex >= 0 && m.SelectedIndex < len(m.FlattenedIssues)-1 {
+					m.SelectedIndex++
 					// Update placeholder with selected issue's branch name
-					if m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
-						m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+					if m.SelectedIndex < len(m.FlattenedIssues) && !m.FlattenedIssues[m.SelectedIndex].IsAddSubtask {
+						m.TextInput.Placeholder = m.FlattenedIssues[m.SelectedIndex].GetBranchName()
 					}
-				} else if m.selectedIndex == len(m.flattenedIssues)-1 {
+				} else if m.SelectedIndex == len(m.FlattenedIssues)-1 {
 					// Go back to custom input
-					m.selectedIndex = -1
-					m.inputMode = true
-					m.textInput.Focus()
+					m.SelectedIndex = -1
+					m.InputMode = true
+					m.TextInput.Focus()
 					// Reset placeholder to default
-					m.textInput.Placeholder = "enter branch name or select suggestion below"
+					m.TextInput.Placeholder = "enter branch name or select suggestion below"
 				}
 			}
 			return m, nil
 
 		case tea.KeyRight:
-			if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
-				selectedIssue := &m.flattenedIssues[m.selectedIndex]
+			if !m.InputMode && !m.Submitted && m.SelectedIndex >= 0 && m.SelectedIndex < len(m.FlattenedIssues) {
+				selectedIssue := &m.FlattenedIssues[m.SelectedIndex]
 
 				if selectedIssue.IsAddSubtask {
 					// Start subtask input mode
-					m.subtaskInputMode = true
-					m.subtaskParentID = selectedIssue.SubtaskParentID
-					m.subtaskInput.SetValue("")
-					m.subtaskInput.Focus()
+					m.SubtaskInputMode = true
+					m.SubtaskParentID = selectedIssue.SubtaskParentID
+					m.SubtaskInput.SetValue("")
+					m.SubtaskInput.Focus()
 				} else {
 					// Always expand - either to show children or the "add subtask" option
 					if !selectedIssue.Expanded {
@@ -365,17 +365,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyLeft:
-			if !m.inputMode && !m.submitted && m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) {
-				selectedIssue := &m.flattenedIssues[m.selectedIndex]
+			if !m.InputMode && !m.Submitted && m.SelectedIndex >= 0 && m.SelectedIndex < len(m.FlattenedIssues) {
+				selectedIssue := &m.FlattenedIssues[m.SelectedIndex]
 
 				if selectedIssue.IsAddSubtask {
 					// For add subtask items, collapse their parent instead
 					m.updateIssueExpansion(selectedIssue.SubtaskParentID, false)
 					m.flattenIssues()
 					// Move selection to the parent
-					for i, issue := range m.flattenedIssues {
+					for i, issue := range m.FlattenedIssues {
 						if issue.ID == selectedIssue.SubtaskParentID {
-							m.selectedIndex = i
+							m.SelectedIndex = i
 							break
 						}
 					}
@@ -389,54 +389,54 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case worktreeCreatedMsg:
-		m.creating = false
-		m.done = true
-		m.success = true
-		m.result = fmt.Sprintf("Worktree created at: %s", msg.path)
+		m.Creating = false
+		m.Done = true
+		m.Success = true
+		m.Result = fmt.Sprintf("Worktree created at: %s", msg.path)
 		// Store the path for later execution and quit the TUI
-		m.worktreePath = msg.path
+		m.WorktreePath = msg.path
 		return m, tea.Quit
 
 	case errMsg:
-		m.creating = false
-		m.done = true
-		m.success = false
-		m.errorMsg = msg.err.Error()
+		m.Creating = false
+		m.Done = true
+		m.Success = false
+		m.ErrorMsg = msg.err.Error()
 		return m, tea.Quit
 
 	case linearIssuesLoadedMsg:
-		m.linearLoading = false
-		m.linearIssues = msg.issues
-		m.linearError = ""
+		m.LinearLoading = false
+		m.LinearIssues = msg.issues
+		m.LinearError = ""
 		m.flattenIssues()
 		// Update placeholder if a Linear ticket is currently selected
-		if m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
-			m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+		if m.SelectedIndex >= 0 && m.SelectedIndex < len(m.FlattenedIssues) && !m.FlattenedIssues[m.SelectedIndex].IsAddSubtask {
+			m.TextInput.Placeholder = m.FlattenedIssues[m.SelectedIndex].GetBranchName()
 		}
 
 	case linearErrorMsg:
-		m.linearLoading = false
-		m.linearError = msg.err.Error()
+		m.LinearLoading = false
+		m.LinearError = msg.err.Error()
 
 	case childrenLoadedMsg:
 		m.setIssueChildren(msg.parentID, msg.children)
 		m.flattenIssues()
 		// Update placeholder if a Linear ticket is currently selected
-		if m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
-			m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+		if m.SelectedIndex >= 0 && m.SelectedIndex < len(m.FlattenedIssues) && !m.FlattenedIssues[m.SelectedIndex].IsAddSubtask {
+			m.TextInput.Placeholder = m.FlattenedIssues[m.SelectedIndex].GetBranchName()
 		}
 
 	case childrenErrorMsg:
 		// Could show error message or silently fail
 
 	case subtaskCreatedMsg:
-		m.creatingSubtask = false
+		m.CreatingSubtask = false
 
 		// Clear subtask input
-		m.subtaskInput.SetValue("")
-		m.subtaskInput.Blur()
-		m.subtaskInputMode = false
-		m.subtaskParentID = ""
+		m.SubtaskInput.SetValue("")
+		m.SubtaskInput.Blur()
+		m.SubtaskInputMode = false
+		m.SubtaskParentID = ""
 
 		// Add the newly created subtask to the parent's children and expand
 		m.addSubtaskToParent(msg.parentID, msg.subtask)
@@ -444,26 +444,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flattenIssues()
 
 		// Find and select the newly created subtask
-		for i, issue := range m.flattenedIssues {
+		for i, issue := range m.FlattenedIssues {
 			if issue.ID == msg.subtask.ID {
-				m.selectedIndex = i
-				m.inputMode = false
+				m.SelectedIndex = i
+				m.InputMode = false
 				break
 			}
 		}
 
 	case subtaskErrorMsg:
-		m.creatingSubtask = false
-		m.done = true
-		m.success = false
-		m.errorMsg = fmt.Sprintf("Failed to create subtask: %s", msg.err.Error())
+		m.CreatingSubtask = false
+		m.Done = true
+		m.Success = false
+		m.ErrorMsg = fmt.Sprintf("Failed to create subtask: %s", msg.err.Error())
 		return m, tea.Quit
 	}
 
 	// Update spinner if any loading state is active
-	if m.linearLoading || m.creating || m.creatingSubtask {
+	if m.LinearLoading || m.Creating || m.CreatingSubtask {
 		var spinnerCmd tea.Cmd
-		m.spinner, spinnerCmd = m.spinner.Update(msg)
+		m.Spinner, spinnerCmd = m.Spinner.Update(msg)
 		if cmd != nil {
 			return m, tea.Batch(cmd, spinnerCmd)
 		}
@@ -471,10 +471,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Update text inputs based on current mode
-	if m.inputMode {
-		m.textInput, cmd = m.textInput.Update(msg)
-	} else if m.subtaskInputMode {
-		m.subtaskInput, cmd = m.subtaskInput.Update(msg)
+	if m.InputMode {
+		m.TextInput, cmd = m.TextInput.Update(msg)
+	} else if m.SubtaskInputMode {
+		m.SubtaskInput, cmd = m.SubtaskInput.Update(msg)
 	}
 
 	return m, cmd
@@ -482,8 +482,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) createWorktree() tea.Cmd {
 	return func() tea.Msg {
-		branchName := strings.TrimSpace(m.textInput.Value())
-		worktreePath, err := m.worktreeManager.CreateWorktree(branchName)
+		branchName := strings.TrimSpace(m.TextInput.Value())
+		worktreePath, err := m.WorktreeManager.CreateWorktree(branchName)
 		if err != nil {
 			return errMsg{err}
 		}
@@ -494,13 +494,13 @@ func (m model) createWorktree() tea.Cmd {
 // flattenIssues creates a flat list of issues for navigation, respecting expanded state
 // and including "add subtask" placeholders where appropriate
 func (m *model) flattenIssues() {
-	m.flattenedIssues = []linear.Issue{}
+	m.FlattenedIssues = []linear.Issue{}
 
 	var flatten func(issues []linear.Issue, depth int)
 	flatten = func(issues []linear.Issue, depth int) {
 		for _, issue := range issues {
 			issue.Depth = depth
-			m.flattenedIssues = append(m.flattenedIssues, issue)
+			m.FlattenedIssues = append(m.FlattenedIssues, issue)
 
 			if issue.Expanded {
 				// Add children if they exist
@@ -520,12 +520,12 @@ func (m *model) flattenIssues() {
 					TitleInput:      "",
 					TitleCursor:     0,
 				}
-				m.flattenedIssues = append(m.flattenedIssues, addSubtaskPlaceholder)
+				m.FlattenedIssues = append(m.FlattenedIssues, addSubtaskPlaceholder)
 			}
 		}
 	}
 
-	flatten(m.linearIssues, 0)
+	flatten(m.LinearIssues, 0)
 }
 
 // updateIssueExpansion updates the expanded state of an issue recursively
@@ -542,7 +542,7 @@ func (m *model) updateIssueExpansion(issueID string, expanded bool) {
 			}
 		}
 	}
-	update(&m.linearIssues)
+	update(&m.LinearIssues)
 }
 
 // setIssueChildren sets the children for a specific issue
@@ -564,12 +564,12 @@ func (m *model) setIssueChildren(parentID string, children []linear.Issue) {
 			}
 		}
 	}
-	setChildren(&m.linearIssues)
+	setChildren(&m.LinearIssues)
 }
 
 func (m model) fetchLinearIssues() tea.Cmd {
 	return func() tea.Msg {
-		issues, err := m.linearClient.GetAssignedIssues()
+		issues, err := m.LinearClient.GetAssignedIssues()
 		if err != nil {
 			return linearErrorMsg{err}
 		}
@@ -579,7 +579,7 @@ func (m model) fetchLinearIssues() tea.Cmd {
 
 func (m model) fetchChildren(issueID string) tea.Cmd {
 	return func() tea.Msg {
-		children, err := m.linearClient.GetIssueChildren(issueID)
+		children, err := m.LinearClient.GetIssueChildren(issueID)
 		if err != nil {
 			return childrenErrorMsg{err}
 		}
@@ -589,7 +589,7 @@ func (m model) fetchChildren(issueID string) tea.Cmd {
 
 func (m model) createSubtaskInline(parentID, title string) tea.Cmd {
 	return func() tea.Msg {
-		subtask, err := m.linearClient.CreateSubtask(parentID, title)
+		subtask, err := m.LinearClient.CreateSubtask(parentID, title)
 		if err != nil {
 			return subtaskErrorMsg{err}
 		}
@@ -617,7 +617,7 @@ func (m *model) addSubtaskToParent(parentID string, subtask linear.Issue) {
 			}
 		}
 	}
-	addToParent(&m.linearIssues)
+	addToParent(&m.LinearIssues)
 }
 
 type errMsg struct {
@@ -656,20 +656,20 @@ type subtaskErrorMsg struct {
 }
 
 func (m model) View() string {
-	if m.done {
-		if m.success {
-			return successStyle.Render("✓ "+m.result) + "\n\n" + helpStyle.Render("Press any key to exit.")
+	if m.Done {
+		if m.Success {
+			return successStyle.Render("✓ "+m.Result) + "\n\n" + helpStyle.Render("Press any key to exit.")
 		} else {
-			return errorStyle.Render("✗ Error: "+m.errorMsg) + "\n\n" + helpStyle.Render("Press any key to exit.")
+			return errorStyle.Render("✗ Error: "+m.ErrorMsg) + "\n\n" + helpStyle.Render("Press any key to exit.")
 		}
 	}
 
-	if m.creating {
-		return fmt.Sprintf("%s Creating worktree...", m.spinner.View())
+	if m.Creating {
+		return fmt.Sprintf("%s Creating worktree...", m.Spinner.View())
 	}
 
-	if m.creatingSubtask {
-		return fmt.Sprintf("%s Creating subtask...", m.spinner.View())
+	if m.CreatingSubtask {
+		return fmt.Sprintf("%s Creating subtask...", m.Spinner.View())
 	}
 
 	s := strings.Builder{}
@@ -677,24 +677,24 @@ func (m model) View() string {
 	s.WriteString("\n")
 
 	// Input using textinput component - adjust prompt style based on selection
-	if m.selectedIndex == -1 {
+	if m.SelectedIndex == -1 {
 		// When input is selected, use selected style for prompt
-		m.textInput.PromptStyle = selectedStyle
+		m.TextInput.PromptStyle = selectedStyle
 	} else {
 		// When input is not selected, use normal style
-		m.textInput.PromptStyle = lipgloss.NewStyle().Foreground(primaryColor)
+		m.TextInput.PromptStyle = lipgloss.NewStyle().Foreground(primaryColor)
 	}
 
-	s.WriteString(m.textInput.View())
+	s.WriteString(m.TextInput.View())
 	s.WriteString("\n")
 
 	// Display Linear tickets tree if available
-	if m.linearClient != nil {
-		if m.linearLoading {
-			s.WriteString(fmt.Sprintf("%s Loading tickets...", m.spinner.View()))
-		} else if m.linearError != "" {
-			s.WriteString(errorStyle.Render("Error: " + m.linearError))
-		} else if len(m.linearIssues) == 0 {
+	if m.LinearClient != nil {
+		if m.LinearLoading {
+			s.WriteString(fmt.Sprintf("%s Loading tickets...", m.Spinner.View()))
+		} else if m.LinearError != "" {
+			s.WriteString(errorStyle.Render("Error: " + m.LinearError))
+		} else if len(m.LinearIssues) == 0 {
 			s.WriteString(helpStyle.Render("No assigned tickets found"))
 		} else {
 			treeView := m.buildSimpleLinearTree()
@@ -762,7 +762,7 @@ func (m model) renderIssueTreeLine(issue linear.Issue, index int, maxLen int) st
 }
 
 func (m model) buildSimpleLinearTree() string {
-	if len(m.flattenedIssues) == 0 {
+	if len(m.FlattenedIssues) == 0 {
 		return ""
 	}
 
@@ -773,24 +773,25 @@ func (m model) buildSimpleLinearTree() string {
 		EnumeratorStyle(expandedStyle)
 
 	// Stack to track parent nodes at each depth level
-	nodeStack := []*tree.Tree{root}
+	// nodeStack[depth] = the node at that depth level that can accept children
+	nodeStack := make([]*tree.Tree, 0, 10)
+	nodeStack = append(nodeStack, root) // depth 0 is the root
 
-	for i, issue := range m.flattenedIssues {
+	for i, issue := range m.FlattenedIssues {
 		targetDepth := issue.Depth
 
-		// Adjust stack to match the target depth
-		// If we're going to a deeper level, keep adding to stack
-		// If we're going to a shallower level, pop from stack
-		if targetDepth < len(nodeStack)-1 {
-			// Going shallower - pop nodes until we're at the right level
+		// Trim the stack if we're going to a shallower depth
+		// We need nodeStack to have exactly targetDepth+1 elements
+		// so that nodeStack[targetDepth] is the parent for this item
+		if targetDepth+1 < len(nodeStack) {
 			nodeStack = nodeStack[:targetDepth+1]
 		}
 
 		// Create the display content
 		var content string
 		if issue.IsAddSubtask {
-			if m.subtaskInputMode && m.subtaskParentID == issue.SubtaskParentID {
-				content = m.subtaskInput.View()
+			if m.SubtaskInputMode && m.SubtaskParentID == issue.SubtaskParentID {
+				content = m.SubtaskInput.View()
 			} else {
 				content = addSubtaskStyle.Render("+ Add subtask")
 			}
@@ -805,20 +806,24 @@ func (m model) buildSimpleLinearTree() string {
 		}
 
 		// Apply selection styling if this is the selected item
-		if m.selectedIndex == i {
+		if m.SelectedIndex == i {
 			content = selectedStyle.Render(content)
 		} else {
 			content = normalStyle.Render(content)
 		}
 
 		// Add to the appropriate parent in the tree
-		currentParent := nodeStack[len(nodeStack)-1]
-		newNode := currentParent.Child(content)
+		// The parent for an item at targetDepth is nodeStack[targetDepth]
+		if targetDepth >= len(nodeStack) {
+			return "ERROR: Invalid tree structure"
+		}
+		parentNode := nodeStack[targetDepth]
+		newNode := parentNode.Child(content)
 
 		// If this is not an "Add subtask" item, it could have children
-		// So add it to the stack for potential children
+		// So we need to add it to the stack for its potential children
 		if !issue.IsAddSubtask {
-			// Only add to stack if we need to go deeper
+			// Extend stack if needed to include this node as a potential parent
 			if targetDepth+1 >= len(nodeStack) {
 				nodeStack = append(nodeStack, newNode)
 			} else {
@@ -831,8 +836,8 @@ func (m model) buildSimpleLinearTree() string {
 }
 
 func (m model) renderSubtaskInput(parentID string) string {
-	if m.subtaskInputMode && m.subtaskParentID == parentID {
-		return m.subtaskInput.View()
+	if m.SubtaskInputMode && m.SubtaskParentID == parentID {
+		return m.SubtaskInput.View()
 	}
 	return addSubtaskStyle.Render("+ Add subtask")
 }
@@ -864,13 +869,13 @@ func RunInteractive() error {
 	}
 
 	// Check if user cancelled
-	if resultModel, ok := finalModel.(model); ok && resultModel.cancelled {
+	if resultModel, ok := finalModel.(model); ok && resultModel.Cancelled {
 		// User pressed Escape/Ctrl+C, exit cleanly
 		return nil
 	}
 
 	// After TUI exits, check if we need to execute a default command
-	if resultModel, ok := finalModel.(model); ok && resultModel.success && resultModel.worktreePath != "" {
+	if resultModel, ok := finalModel.(model); ok && resultModel.Success && resultModel.WorktreePath != "" {
 		cfg, err := config.Load()
 		if err != nil {
 			cfg = config.DefaultConfig()
@@ -880,7 +885,7 @@ func RunInteractive() error {
 		if len(defaultCmd) > 0 {
 			// Execute the default command in the worktree directory
 			cmd := exec.Command(defaultCmd[0], defaultCmd[1:]...)
-			cmd.Dir = resultModel.worktreePath
+			cmd.Dir = resultModel.WorktreePath
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr

@@ -5,103 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/muesli/termenv"
 	"sprout/pkg/git"
-	"sprout/pkg/linear"
 )
 
-// CreateTestModel creates a simplified model for testing
-func CreateTestModel() (model, error) {
-	// Create mock Linear issues for testing
-	testIssues := []linear.Issue{
-		{
-			ID:          "issue-1",
-			Title:       "Add user authentication",
-			Identifier:  "SPR-123",
-			HasChildren: false,
-			Expanded:    false,
-		},
-		{
-			ID:          "issue-2",
-			Title:       "Implement dashboard with analytics and reporting features",
-			Identifier:  "SPR-124",
-			HasChildren: true,
-			Expanded:    false,
-			Children: []linear.Issue{
-				{
-					ID:         "issue-2-1",
-					Title:      "Create analytics component",
-					Identifier: "SPR-125",
-					Depth:      1,
-				},
-				{
-					ID:         "issue-2-2",
-					Title:      "Add reporting metrics",
-					Identifier: "SPR-126",
-					Depth:      1,
-				},
-			},
-		},
-		{
-			ID:          "issue-3",
-			Title:       "Fix critical bug in payment processing",
-			Identifier:  "SPR-127",
-			HasChildren: false,
-			Expanded:    false,
-		},
-	}
-
-	// Initialize text inputs
-	ti := textinput.New()
-	ti.Placeholder = "enter branch name or select suggestion below"
-	ti.Focus()
-	ti.CharLimit = 156
-	ti.Width = 80
-	ti.Prompt = "> "
-
-	si := textinput.New()
-	si.Placeholder = "enter subtask title"
-	si.CharLimit = 100
-	si.Width = 50
-	si.Prompt = ""
-
-	// Create a mock linear client for testing
-	mockClient := linear.NewClient("test-key")
-
-	// Create a basic model structure for testing
-	m := model{
-		textInput:        ti,
-		subtaskInput:     si,
-		submitted:        false,
-		creating:         false,
-		done:             false,
-		success:          false,
-		cancelled:        false,
-		errorMsg:         "",
-		result:           "",
-		worktreePath:     "",
-		worktreeManager:  nil,        // Skip for testing
-		linearClient:     mockClient, // Use mock client so View() renders issues
-		linearIssues:     testIssues,
-		flattenedIssues:  nil,
-		linearLoading:    false,
-		linearError:      "",
-		selectedIndex:    -1, // Start with custom input selected
-		inputMode:        true,
-		creatingSubtask:  false,
-		subtaskInputMode: false,
-		subtaskParentID:  "",
-	}
-
-	// Flatten issues for navigation
-	m.flattenIssues()
-
-	return m, nil
-}
 
 // TestBasicFunctionality runs a simple test to verify the model works
 func TestBasicFunctionality(t *testing.T) {
@@ -111,16 +21,16 @@ func TestBasicFunctionality(t *testing.T) {
 	}
 
 	// Test that the model initializes correctly
-	if m.selectedIndex != -1 {
-		t.Errorf("Expected selectedIndex to be -1, got %d", m.selectedIndex)
+	if m.SelectedIndex != -1 {
+		t.Errorf("Expected SelectedIndex to be -1, got %d", m.SelectedIndex)
 	}
 
-	if !m.inputMode {
-		t.Error("Expected inputMode to be true")
+	if !m.InputMode {
+		t.Error("Expected InputMode to be true")
 	}
 
-	if len(m.linearIssues) != 3 {
-		t.Errorf("Expected 3 linear issues, got %d", len(m.linearIssues))
+	if len(m.LinearIssues) != 3 {
+		t.Errorf("Expected 3 linear issues, got %d", len(m.LinearIssues))
 	}
 
 	// Test view rendering
@@ -141,24 +51,24 @@ func TestNavigation(t *testing.T) {
 	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = newModel.(model)
 
-	if m.selectedIndex != 0 {
-		t.Errorf("Expected selectedIndex to be 0, got %d", m.selectedIndex)
+	if m.SelectedIndex != 0 {
+		t.Errorf("Expected SelectedIndex to be 0, got %d", m.SelectedIndex)
 	}
 
-	if m.inputMode {
-		t.Error("Expected inputMode to be false after navigation")
+	if m.InputMode {
+		t.Error("Expected InputMode to be false after navigation")
 	}
 
 	// Test moving back up to input
 	newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m = newModel.(model)
 
-	if m.selectedIndex != -1 {
-		t.Errorf("Expected selectedIndex to be -1, got %d", m.selectedIndex)
+	if m.SelectedIndex != -1 {
+		t.Errorf("Expected SelectedIndex to be -1, got %d", m.SelectedIndex)
 	}
 
-	if !m.inputMode {
-		t.Error("Expected inputMode to be true after navigation back to input")
+	if !m.InputMode {
+		t.Error("Expected InputMode to be true after navigation back to input")
 	}
 }
 
@@ -198,8 +108,8 @@ func TestTUIWithMock(t *testing.T) {
 	}
 
 	// Test basic model functionality
-	if model.worktreeManager == nil {
-		t.Fatal("worktreeManager is nil")
+	if model.WorktreeManager == nil {
+		t.Fatal("WorktreeManager is nil")
 	}
 
 	// Test that the model can be initialized
@@ -233,27 +143,13 @@ func TestTUIWithMock(t *testing.T) {
 	}
 }
 
-// Minimal test model to isolate teatest usage
-type minimalModel struct{}
-
-func (m minimalModel) Init() tea.Cmd { return nil }
-func (m minimalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-func (m minimalModel) View() string { return "Hello World" }
 
 // TestTeatestMinimalGolden tests teatest with golden file output
 func TestTeatestMinimalGolden(t *testing.T) {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
 
-	model := minimalModel{}
+	model := MinimalModel{}
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
 
 	// Send a quit message to make the program exit
@@ -322,114 +218,6 @@ func TestTeatestGoldenInteraction(t *testing.T) {
 	teatest.RequireEqualOutput(t, out)
 }
 
-// CreateTestModelTwoExpandedTrees creates a model with two expandable issues for testing expansion bugs
-func CreateTestModelTwoExpandedTrees() (model, error) {
-	// Create mock Linear issues with two different expandable trees
-	testIssues := []linear.Issue{
-		{
-			ID:          "issue-1",
-			Title:       "Feature A: User management system",
-			Identifier:  "SPR-100",
-			HasChildren: true,
-			Expanded:    false,
-			Children: []linear.Issue{
-				{
-					ID:         "issue-1-1",
-					Title:      "Add user registration",
-					Identifier: "SPR-101",
-					Depth:      1,
-				},
-				{
-					ID:         "issue-1-2",
-					Title:      "Implement user authentication",
-					Identifier: "SPR-102",
-					Depth:      1,
-				},
-			},
-		},
-		{
-			ID:          "issue-2",
-			Title:       "Feature B: Dashboard and analytics",
-			Identifier:  "SPR-200",
-			HasChildren: true,
-			Expanded:    false,
-			Children: []linear.Issue{
-				{
-					ID:         "issue-2-1",
-					Title:      "Create dashboard layout",
-					Identifier: "SPR-201",
-					Depth:      1,
-				},
-				{
-					ID:         "issue-2-2",
-					Title:      "Add analytics widgets",
-					Identifier: "SPR-202",
-					Depth:      1,
-				},
-				{
-					ID:         "issue-2-3",
-					Title:      "Implement data visualization",
-					Identifier: "SPR-203",
-					Depth:      1,
-				},
-			},
-		},
-		{
-			ID:          "issue-3",
-			Title:       "Bug fix: Payment processing errors",
-			Identifier:  "SPR-300",
-			HasChildren: false,
-			Expanded:    false,
-		},
-	}
-
-	// Initialize text inputs
-	ti := textinput.New()
-	ti.Placeholder = "enter branch name or select suggestion below"
-	ti.Focus()
-	ti.CharLimit = 156
-	ti.Width = 80
-	ti.Prompt = "> "
-
-	si := textinput.New()
-	si.Placeholder = "enter subtask title"
-	si.CharLimit = 100
-	si.Width = 50
-	si.Prompt = ""
-
-	// Create a mock linear client for testing
-	mockClient := linear.NewClient("test-key")
-
-	// Create a basic model structure for testing
-	m := model{
-		textInput:        ti,
-		subtaskInput:     si,
-		submitted:        false,
-		creating:         false,
-		done:             false,
-		success:          false,
-		cancelled:        false,
-		errorMsg:         "",
-		result:           "",
-		worktreePath:     "",
-		worktreeManager:  nil,        // Skip for testing
-		linearClient:     mockClient, // Use mock client so View() renders issues
-		linearIssues:     testIssues,
-		flattenedIssues:  nil,
-		linearLoading:    false,
-		linearError:      "",
-		selectedIndex:    -1, // Start with custom input selected
-		inputMode:        true,
-		creatingSubtask:  false,
-		subtaskInputMode: false,
-		subtaskParentID:  "",
-	}
-
-	// Flatten issues for navigation
-	m.flattenIssues()
-
-	return m, nil
-}
 
 // TestTeatestGoldenTwoExpandedTrees tests the bug with two different sub-trees expanded
 func TestTeatestGoldenTwoExpandedTrees(t *testing.T) {
@@ -469,11 +257,6 @@ func TestTeatestGoldenTwoExpandedTrees(t *testing.T) {
 	teatest.RequireEqualOutput(t, out)
 }
 
-// sendKey helper function for cleaner test code
-func sendKey(m model, keyType tea.KeyType) model {
-	updatedModel, _ := m.Update(tea.KeyMsg{Type: keyType})
-	return updatedModel.(model)
-}
 
 // TestTwoExpandedTreesModelState tests the internal state when two sub-trees are expanded
 func TestTwoExpandedTreesModelState(t *testing.T) {
@@ -484,38 +267,38 @@ func TestTwoExpandedTreesModelState(t *testing.T) {
 	}
 
 	// Navigate to first expandable issue (Feature A) and expand it
-	model = sendKey(model, tea.KeyDown)  // Move to first issue
-	model = sendKey(model, tea.KeyRight) // Expand first issue
+	model = SendKey(model, tea.KeyDown)  // Move to first issue
+	model = SendKey(model, tea.KeyRight) // Expand first issue
 
 	// Check first issue is expanded
-	if !model.linearIssues[0].Expanded {
+	if !model.LinearIssues[0].Expanded {
 		t.Error("First issue should be expanded")
 	}
 
 	// Navigate to second expandable issue (Feature B)
-	model = sendKey(model, tea.KeyDown)  // Move past first subtask
-	model = sendKey(model, tea.KeyDown)  // Move past second subtask
-	model = sendKey(model, tea.KeyDown)  // Move past "+ Add subtask"
-	model = sendKey(model, tea.KeyDown)  // Move to Feature B
-	model = sendKey(model, tea.KeyRight) // Expand second issue
+	model = SendKey(model, tea.KeyDown)  // Move past first subtask
+	model = SendKey(model, tea.KeyDown)  // Move past second subtask
+	model = SendKey(model, tea.KeyDown)  // Move past "+ Add subtask"
+	model = SendKey(model, tea.KeyDown)  // Move to Feature B
+	model = SendKey(model, tea.KeyRight) // Expand second issue
 
 	// Check both issues are expanded
-	if !model.linearIssues[0].Expanded {
+	if !model.LinearIssues[0].Expanded {
 		t.Error("First issue should still be expanded after expanding second")
 	}
-	if !model.linearIssues[1].Expanded {
+	if !model.LinearIssues[1].Expanded {
 		t.Error("Second issue should be expanded")
 	}
 
 	// Check flattened issues include children from both trees
 	// Expected: 3 main issues + 2 children from first + 1 placeholder + 3 children from second + 1 placeholder = 10
 	expectedCount := 10
-	if len(model.flattenedIssues) != expectedCount {
-		t.Errorf("Expected %d flattened issues when both trees expanded, got %d", expectedCount, len(model.flattenedIssues))
+	if len(model.FlattenedIssues) != expectedCount {
+		t.Errorf("Expected %d flattened issues when both trees expanded, got %d", expectedCount, len(model.FlattenedIssues))
 
 		// Debug: print the flattened issues
 		t.Log("Flattened issues:")
-		for i, issue := range model.flattenedIssues {
+		for i, issue := range model.FlattenedIssues {
 			t.Logf("  [%d] %s (ID: %s, Depth: %d, IsAddSubtask: %v)", i, issue.Title, issue.ID, issue.Depth, issue.IsAddSubtask)
 		}
 	}

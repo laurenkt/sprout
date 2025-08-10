@@ -1,13 +1,0 @@
-[?25l[?2004h🌱 sprout[K
-         [K
-> spr-200-feature-b-dashboard-and-analytics                                     
-├──SPR-100  Feature A: User management system[K
-├──SPR-101  Add user registration[K
-├──SPR-102  Implement user authentication[K
-├──+ Add subtask[K
-├──SPR-200  Feature B: Dashboard and analytics[K
-├──SPR-201  Create dashboard layout[K
-├──SPR-202  Add analytics widgets[K
-├──SPR-203  Implement data visualization[K
-├──+ Add subtask[K
-└──SPR-300  Bug fix: Payment processing errors[K[80D[2K[?2004l[?25h[?1002l[?1003l[?1006l
