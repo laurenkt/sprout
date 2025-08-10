@@ -1,0 +1,56 @@
+# Test error handling for various failure scenarios
+
+# Test Linear API error during loading
+run
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+Error: Failed to connect to Linear API
+
+# Test worktree creation error
+run
+type failed-branch
+key enter  
+----
+✗ Error: Failed to create worktree: branch already exists
+
+Press any key to exit.
+
+# Test subtask creation error  
+run
+key down
+key right
+key down
+key right
+type Test subtask
+key enter
+----
+✗ Error: Failed to create subtask: Linear API unavailable
+
+Press any key to exit.
+
+# Test network timeout during Linear operations
+run
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+Error: Request timeout - please check your connection
+
+# Test invalid branch name characters
+run
+type invalid/branch*name
+key enter
+----
+✗ Error: Invalid branch name: contains illegal characters
+
+Press any key to exit.
+
+# Test empty Linear response
+run  
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+No assigned tickets found

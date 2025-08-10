@@ -1,0 +1,74 @@
+# Test basic navigation between custom input and Linear tickets
+
+run
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+Loading tickets...
+
+# Test moving from custom input to first Linear ticket
+run
+key down
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Test moving to second ticket
+run  
+key down
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Test moving back up
+run
+key up  
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Test moving back to custom input from first ticket
+run
+key up
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Test navigating from custom input to last ticket by going up
+run
+key up
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Test wrapping from last ticket back to custom input
+run
+key down
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing

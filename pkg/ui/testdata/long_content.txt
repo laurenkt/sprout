@@ -1,0 +1,46 @@
+# Test long content truncation and display
+
+# Test very long Linear ticket titles get truncated properly
+run
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting...
+  SPR-127   Fix critical bug in payment processing
+
+# Test navigation with truncated content
+run
+key down
+key down  
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting...
+  SPR-127   Fix critical bug in payment processing
+
+# Test long branch names in input
+run
+type implement-comprehensive-user-authentication-system-with-oauth-integration-and-multi-factor-support
+----
+🌱 sprout
+> implement-comprehensive-user-authentication-system-with-oauth-integration-and-multi-factor-support█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting...
+  SPR-127   Fix critical bug in payment processing
+
+# Test that very long content doesn't break the UI layout
+run
+key backspace backspace backspace backspace backspace backspace backspace backspace backspace backspace
+type -extended-with-additional-security-features-and-comprehensive-logging-capabilities
+----
+🌱 sprout
+> implement-comprehensive-user-authentication-system-with-oauth-integration-and-multi-factor-supp-extended-with-additional-security-features-and-comprehensive-logging-capabilities█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting...
+  SPR-127   Fix critical bug in payment processing

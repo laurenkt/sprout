@@ -1,0 +1,35 @@
+# Test empty states and edge cases
+
+# Test when no Linear tickets are available
+run
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+No assigned tickets found
+
+# Test with very long branch name (should be truncated or handled)
+run
+type this-is-a-very-long-branch-name-that-exceeds-normal-limits-and-should-be-handled-gracefully-by-the-system
+----
+🌱 sprout
+> this-is-a-very-long-branch-name-that-exceeds-normal-limits-and-should-be-handled-gracefully-by-the-system█
+
+No assigned tickets found
+
+# Test navigation when no tickets are present - should stay on input
+run  
+key down
+----
+🌱 sprout
+> this-is-a-very-long-branch-name-that-exceeds-normal-limits-and-should-be-handled-gracefully-by-the-system█
+
+No assigned tickets found
+
+run
+key up
+----
+🌱 sprout
+> this-is-a-very-long-branch-name-that-exceeds-normal-limits-and-should-be-handled-gracefully-by-the-system█
+
+No assigned tickets found
