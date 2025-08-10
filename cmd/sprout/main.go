@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"syscall"
 	
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"sprout/pkg/config"
 	"sprout/pkg/git"
 	"sprout/pkg/linear"
@@ -158,16 +159,42 @@ func handleListCommand() error {
 		return nil
 	}
 	
-	fmt.Printf("%-20s %-10s %s\n", "BRANCH", "PR STATUS", "COMMIT")
-	fmt.Println(strings.Repeat("-", 40))
+	// Create table with consistent styling
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("69")).
+		Bold(true)
+	
+	branchStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("108"))
+	
+	normalStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+	
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("243"))).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			if row == 0 {
+				return headerStyle
+			}
+			if col == 0 {
+				return branchStyle
+			}
+			return normalStyle
+		}).
+		Headers("BRANCH", "PR STATUS", "COMMIT")
 	
 	for _, wt := range filteredWorktrees {
 		commit := wt.Commit
 		if len(commit) > 8 {
 			commit = commit[:8]
 		}
-		fmt.Printf("%-20s %-10s %s\n", wt.Branch, wt.PRStatus, commit)
+		t.Row(wt.Branch, wt.PRStatus, commit)
 	}
+	
+	fmt.Println(headerStyle.Render("🌱 Active Worktrees"))
+	fmt.Println()
+	fmt.Println(t)
 	
 	return nil
 }
@@ -188,46 +215,59 @@ func handlePruneCommand(args []string) error {
 }
 
 func handleDoctorCommand(cfg *config.Config) {
-	fmt.Println("Sprout Configuration")
-	fmt.Println("===================")
-	fmt.Printf("Default Command: %s\n", cfg.DefaultCommand)
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("69")).
+		Bold(true)
+	
+	accentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("108"))
+	
+	normalStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+	
+	warningStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("221"))
+
+	fmt.Println(headerStyle.Render("🌱 Sprout Configuration"))
+	fmt.Println()
+	
+	fmt.Printf("  %s: %s\n", accentStyle.Render("Default Command"), normalStyle.Render(cfg.DefaultCommand))
 	
 	if cfg.GetLinearAPIKey() != "" {
-		fmt.Printf("Linear API Key: configured\n")
+		fmt.Printf("  %s: %s\n", accentStyle.Render("Linear API Key"), normalStyle.Render("configured"))
 	} else {
-		fmt.Printf("Linear API Key: not configured\n")
+		fmt.Printf("  %s: %s\n", accentStyle.Render("Linear API Key"), warningStyle.Render("not configured"))
 	}
 	
 	configPath, err := getConfigPath()
 	if err != nil {
-		fmt.Printf("Config Path: <error: %v>\n", err)
+		fmt.Printf("  %s: %s\n", accentStyle.Render("Config Path"), warningStyle.Render(fmt.Sprintf("<error: %v>", err)))
 	} else {
-		fmt.Printf("Config Path: %s\n", configPath)
+		fmt.Printf("  %s: %s\n", accentStyle.Render("Config Path"), normalStyle.Render(configPath))
 		
 		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			fmt.Println("Config File: not found (using defaults)")
+			fmt.Printf("  %s: %s\n", accentStyle.Render("Config File"), warningStyle.Render("not found (using defaults)"))
 		} else {
-			fmt.Println("Config File: exists")
+			fmt.Printf("  %s: %s\n", accentStyle.Render("Config File"), normalStyle.Render("exists"))
 		}
 	}
 	
-	// Linear connectivity test
 	fmt.Println()
-	fmt.Println("Linear Integration")
-	fmt.Println("=================")
+	fmt.Println(headerStyle.Render("Linear Integration"))
+	fmt.Println()
 	
 	if cfg.LinearAPIKey == "" {
-		fmt.Println("Linear API Key: not configured")
-		fmt.Println("Linear Status: disabled")
+		fmt.Printf("  %s: %s\n", accentStyle.Render("API Key"), warningStyle.Render("not configured"))
+		fmt.Printf("  %s: %s\n", accentStyle.Render("Status"), warningStyle.Render("disabled"))
 	} else {
 		// Mask the key for security
 		maskedKey := cfg.LinearAPIKey
 		if len(maskedKey) > 8 {
 			maskedKey = maskedKey[:8] + "..." + maskedKey[len(maskedKey)-4:]
 		}
-		fmt.Printf("Linear API Key: %s\n", maskedKey)
+		fmt.Printf("  %s: %s\n", accentStyle.Render("API Key"), normalStyle.Render(maskedKey))
 		
-		fmt.Print("Linear Status: testing connection... ")
+		fmt.Printf("  %s: ", accentStyle.Render("Status"))
 		testLinearConnection(cfg.LinearAPIKey)
 	}
 }
@@ -241,24 +281,35 @@ func getConfigPath() (string, error) {
 }
 
 func testLinearConnection(apiKey string) {
+	successStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("108")).
+		Bold(true)
+	
+	errorStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("204")).
+		Bold(true)
+	
+	normalStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("252"))
+
 	client := linear.NewClient(apiKey)
 	
 	user, err := client.GetCurrentUser()
 	if err != nil {
-		fmt.Printf("❌ Failed\n")
-		fmt.Printf("Error: %v\n", err)
+		fmt.Printf("%s\n", errorStyle.Render("✗ Failed"))
+		fmt.Printf("  %s\n", errorStyle.Render(fmt.Sprintf("Error: %v", err)))
 		return
 	}
 	
-	fmt.Printf("✅ Connected\n")
-	fmt.Printf("Linear User: %s (%s)\n", user.Name, user.Email)
+	fmt.Printf("%s\n", successStyle.Render("✓ Connected"))
+	fmt.Printf("  %s: %s\n", normalStyle.Render("User"), normalStyle.Render(fmt.Sprintf("%s (%s)", user.Name, user.Email)))
 	
 	// Try to fetch assigned issues
 	issues, err := client.GetAssignedIssues()
 	if err != nil {
-		fmt.Printf("Assigned Issues: <error fetching: %v>\n", err)
+		fmt.Printf("  %s: %s\n", normalStyle.Render("Assigned Issues"), errorStyle.Render(fmt.Sprintf("<error fetching: %v>", err)))
 	} else {
-		fmt.Printf("Assigned Issues: %d active tickets\n", len(issues))
+		fmt.Printf("  %s: %s\n", normalStyle.Render("Assigned Issues"), normalStyle.Render(fmt.Sprintf("%d active tickets", len(issues))))
 	}
 }
 
