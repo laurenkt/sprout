@@ -54,7 +54,7 @@ func CreateTestModel() (model, error) {
 			Expanded:    false,
 		},
 	}
-	
+
 	// Initialize text inputs
 	ti := textinput.New()
 	ti.Placeholder = "enter branch name or select suggestion below"
@@ -62,44 +62,44 @@ func CreateTestModel() (model, error) {
 	ti.CharLimit = 156
 	ti.Width = 80
 	ti.Prompt = "> "
-	
+
 	si := textinput.New()
 	si.Placeholder = "enter subtask title"
 	si.CharLimit = 100
 	si.Width = 50
 	si.Prompt = ""
-	
+
 	// Create a mock linear client for testing
 	mockClient := linear.NewClient("test-key")
-	
+
 	// Create a basic model structure for testing
 	m := model{
-		textInput:         ti,
-		subtaskInput:      si,
-		submitted:         false,
-		creating:          false,
-		done:              false,
-		success:           false,
-		cancelled:         false,
-		errorMsg:          "",
-		result:            "",
-		worktreePath:      "",
-		worktreeManager:   nil, // Skip for testing
-		linearClient:      mockClient, // Use mock client so View() renders issues
-		linearIssues:      testIssues,
-		flattenedIssues:   nil,
-		linearLoading:     false,
-		linearError:       "",
-		selectedIndex:     -1, // Start with custom input selected
-		inputMode:         true,
-		creatingSubtask:   false,
-		subtaskInputMode:  false,
-		subtaskParentID:   "",
+		textInput:        ti,
+		subtaskInput:     si,
+		submitted:        false,
+		creating:         false,
+		done:             false,
+		success:          false,
+		cancelled:        false,
+		errorMsg:         "",
+		result:           "",
+		worktreePath:     "",
+		worktreeManager:  nil,        // Skip for testing
+		linearClient:     mockClient, // Use mock client so View() renders issues
+		linearIssues:     testIssues,
+		flattenedIssues:  nil,
+		linearLoading:    false,
+		linearError:      "",
+		selectedIndex:    -1, // Start with custom input selected
+		inputMode:        true,
+		creatingSubtask:  false,
+		subtaskInputMode: false,
+		subtaskParentID:  "",
 	}
-	
+
 	// Flatten issues for navigation
 	m.flattenIssues()
-	
+
 	return m, nil
 }
 
@@ -109,20 +109,20 @@ func TestBasicFunctionality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Test that the model initializes correctly
 	if m.selectedIndex != -1 {
 		t.Errorf("Expected selectedIndex to be -1, got %d", m.selectedIndex)
 	}
-	
+
 	if !m.inputMode {
 		t.Error("Expected inputMode to be true")
 	}
-	
+
 	if len(m.linearIssues) != 3 {
 		t.Errorf("Expected 3 linear issues, got %d", len(m.linearIssues))
 	}
-	
+
 	// Test view rendering
 	view := m.View()
 	if view == "" {
@@ -136,27 +136,27 @@ func TestNavigation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Test moving down from input to first ticket
 	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 	m = newModel.(model)
-	
+
 	if m.selectedIndex != 0 {
 		t.Errorf("Expected selectedIndex to be 0, got %d", m.selectedIndex)
 	}
-	
+
 	if m.inputMode {
 		t.Error("Expected inputMode to be false after navigation")
 	}
-	
+
 	// Test moving back up to input
 	newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m = newModel.(model)
-	
+
 	if m.selectedIndex != -1 {
 		t.Errorf("Expected selectedIndex to be -1, got %d", m.selectedIndex)
 	}
-	
+
 	if !m.inputMode {
 		t.Error("Expected inputMode to be true after navigation back to input")
 	}
@@ -166,7 +166,7 @@ func TestNavigation(t *testing.T) {
 func TestMockWorktreeManager(t *testing.T) {
 	// Create a mock worktree manager for testing
 	mockWM := git.NewMockWorktreeManager("/tmp/test-repo")
-	
+
 	// Test worktree creation
 	path, err := mockWM.CreateWorktree("test-branch")
 	if err != nil {
@@ -175,7 +175,7 @@ func TestMockWorktreeManager(t *testing.T) {
 	if path == "" {
 		t.Error("CreateWorktree returned empty path")
 	}
-	
+
 	// Test worktree listing
 	worktrees, err := mockWM.ListWorktrees()
 	if err != nil {
@@ -190,31 +190,31 @@ func TestMockWorktreeManager(t *testing.T) {
 func TestTUIWithMock(t *testing.T) {
 	// Create a mock worktree manager for testing
 	mockWM := git.NewMockWorktreeManager("/tmp/test-repo")
-	
+
 	// Create model with mock dependencies
 	model, err := NewTUIWithManager(mockWM)
 	if err != nil {
 		t.Fatalf("NewTUIWithManager failed: %v", err)
 	}
-	
+
 	// Test basic model functionality
 	if model.worktreeManager == nil {
 		t.Fatal("worktreeManager is nil")
 	}
-	
+
 	// Test that the model can be initialized
 	cmd := model.Init()
 	if cmd == nil {
 		t.Log("Init returned nil command (this is fine)")
 	}
-	
+
 	// Test that View doesn't panic
 	view := model.View()
 	if view == "" {
 		t.Error("View returned empty string")
 	}
 	t.Log("TUI model works correctly with mock")
-	
+
 	// Test calling View multiple times to ensure stability
 	for i := 0; i < 5; i++ {
 		view := model.View()
@@ -222,7 +222,7 @@ func TestTUIWithMock(t *testing.T) {
 			t.Errorf("View returned empty string on iteration %d", i)
 		}
 	}
-	
+
 	// Test Update with different message types
 	updatedModel, updateCmd := model.Update(nil)
 	if updatedModel == nil {
@@ -237,14 +237,14 @@ func TestTUIWithMock(t *testing.T) {
 type minimalModel struct{}
 
 func (m minimalModel) Init() tea.Cmd { return nil }
-func (m minimalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { 
+func (m minimalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
 			return m, tea.Quit
 		}
 	}
-	return m, nil 
+	return m, nil
 }
 func (m minimalModel) View() string { return "Hello World" }
 
@@ -252,13 +252,13 @@ func (m minimalModel) View() string { return "Hello World" }
 func TestTeatestMinimalGolden(t *testing.T) {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
-	
+
 	model := minimalModel{}
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
-	
+
 	// Send a quit message to make the program exit
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	
+
 	// Capture output and compare with golden file
 	out, err := io.ReadAll(tm.FinalOutput(t))
 	if err != nil {
@@ -271,21 +271,21 @@ func TestTeatestMinimalGolden(t *testing.T) {
 func TestTeatestGoldenNavigation(t *testing.T) {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
-	
+
 	// Use CreateTestModel for deterministic behavior
 	model, err := CreateTestModel()
 	if err != nil {
 		t.Fatalf("CreateTestModel failed: %v", err)
 	}
-	
+
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
-	
+
 	// Test navigation: down arrow to select first ticket
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
-	
+
 	// Send quit message to exit
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
-	
+
 	// Capture output and compare with golden file
 	out, err := io.ReadAll(tm.FinalOutput(t))
 	if err != nil {
@@ -298,22 +298,22 @@ func TestTeatestGoldenNavigation(t *testing.T) {
 func TestTeatestGoldenInteraction(t *testing.T) {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
-	
+
 	// Use CreateTestModel for deterministic behavior
 	model, err := CreateTestModel()
 	if err != nil {
 		t.Fatalf("CreateTestModel failed: %v", err)
 	}
-	
+
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
-	
+
 	// Test navigation: down arrow to select first ticket, then up to go back
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyUp})
-	
+
 	// Send quit message to exit
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
-	
+
 	// Capture output and compare with golden file
 	out, err := io.ReadAll(tm.FinalOutput(t))
 	if err != nil {
@@ -382,7 +382,7 @@ func CreateTestModelTwoExpandedTrees() (model, error) {
 			Expanded:    false,
 		},
 	}
-	
+
 	// Initialize text inputs
 	ti := textinput.New()
 	ti.Placeholder = "enter branch name or select suggestion below"
@@ -390,44 +390,44 @@ func CreateTestModelTwoExpandedTrees() (model, error) {
 	ti.CharLimit = 156
 	ti.Width = 80
 	ti.Prompt = "> "
-	
+
 	si := textinput.New()
 	si.Placeholder = "enter subtask title"
 	si.CharLimit = 100
 	si.Width = 50
 	si.Prompt = ""
-	
+
 	// Create a mock linear client for testing
 	mockClient := linear.NewClient("test-key")
-	
+
 	// Create a basic model structure for testing
 	m := model{
-		textInput:         ti,
-		subtaskInput:      si,
-		submitted:         false,
-		creating:          false,
-		done:              false,
-		success:           false,
-		cancelled:         false,
-		errorMsg:          "",
-		result:            "",
-		worktreePath:      "",
-		worktreeManager:   nil, // Skip for testing
-		linearClient:      mockClient, // Use mock client so View() renders issues
-		linearIssues:      testIssues,
-		flattenedIssues:   nil,
-		linearLoading:     false,
-		linearError:       "",
-		selectedIndex:     -1, // Start with custom input selected
-		inputMode:         true,
-		creatingSubtask:   false,
-		subtaskInputMode:  false,
-		subtaskParentID:   "",
+		textInput:        ti,
+		subtaskInput:     si,
+		submitted:        false,
+		creating:         false,
+		done:             false,
+		success:          false,
+		cancelled:        false,
+		errorMsg:         "",
+		result:           "",
+		worktreePath:     "",
+		worktreeManager:  nil,        // Skip for testing
+		linearClient:     mockClient, // Use mock client so View() renders issues
+		linearIssues:     testIssues,
+		flattenedIssues:  nil,
+		linearLoading:    false,
+		linearError:      "",
+		selectedIndex:    -1, // Start with custom input selected
+		inputMode:        true,
+		creatingSubtask:  false,
+		subtaskInputMode: false,
+		subtaskParentID:  "",
 	}
-	
+
 	// Flatten issues for navigation
 	m.flattenIssues()
-	
+
 	return m, nil
 }
 
@@ -435,32 +435,32 @@ func CreateTestModelTwoExpandedTrees() (model, error) {
 func TestTeatestGoldenTwoExpandedTrees(t *testing.T) {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
-	
+
 	// Use CreateTestModelTwoExpandedTrees for testing multiple expanded trees
 	model, err := CreateTestModelTwoExpandedTrees()
 	if err != nil {
 		t.Fatalf("CreateTestModelTwoExpandedTrees failed: %v", err)
 	}
-	
+
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 30))
-	
+
 	// Navigate to first expandable issue (Feature A)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})  // Move to first issue
 	tm.Send(tea.KeyMsg{Type: tea.KeyRight}) // Expand first issue
-	
+
 	// Navigate to second expandable issue (Feature B)
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})  // Move past first subtask
-	tm.Send(tea.KeyMsg{Type: tea.KeyDown})  // Move past second subtask  
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})  // Move past second subtask
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})  // Move past "+ Add subtask"
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})  // Move to Feature B
 	tm.Send(tea.KeyMsg{Type: tea.KeyRight}) // Expand second issue
-	
+
 	// Force a redraw to ensure screen is updated
 	tm.Send(tea.WindowSizeMsg{Width: 80, Height: 30})
-	
+
 	// Now quit the program - this should capture the final screen state
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
-	
+
 	// Capture output and compare with golden file
 	out, err := io.ReadAll(tm.FinalOutput(t))
 	if err != nil {
@@ -482,23 +482,23 @@ func TestTwoExpandedTreesModelState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTestModelTwoExpandedTrees failed: %v", err)
 	}
-	
+
 	// Navigate to first expandable issue (Feature A) and expand it
-	model = sendKey(model, tea.KeyDown)   // Move to first issue
-	model = sendKey(model, tea.KeyRight)  // Expand first issue
-	
+	model = sendKey(model, tea.KeyDown)  // Move to first issue
+	model = sendKey(model, tea.KeyRight) // Expand first issue
+
 	// Check first issue is expanded
 	if !model.linearIssues[0].Expanded {
 		t.Error("First issue should be expanded")
 	}
-	
+
 	// Navigate to second expandable issue (Feature B)
 	model = sendKey(model, tea.KeyDown)  // Move past first subtask
 	model = sendKey(model, tea.KeyDown)  // Move past second subtask
 	model = sendKey(model, tea.KeyDown)  // Move past "+ Add subtask"
 	model = sendKey(model, tea.KeyDown)  // Move to Feature B
 	model = sendKey(model, tea.KeyRight) // Expand second issue
-	
+
 	// Check both issues are expanded
 	if !model.linearIssues[0].Expanded {
 		t.Error("First issue should still be expanded after expanding second")
@@ -506,23 +506,23 @@ func TestTwoExpandedTreesModelState(t *testing.T) {
 	if !model.linearIssues[1].Expanded {
 		t.Error("Second issue should be expanded")
 	}
-	
+
 	// Check flattened issues include children from both trees
 	// Expected: 3 main issues + 2 children from first + 1 placeholder + 3 children from second + 1 placeholder = 10
 	expectedCount := 10
 	if len(model.flattenedIssues) != expectedCount {
 		t.Errorf("Expected %d flattened issues when both trees expanded, got %d", expectedCount, len(model.flattenedIssues))
-		
+
 		// Debug: print the flattened issues
 		t.Log("Flattened issues:")
 		for i, issue := range model.flattenedIssues {
 			t.Logf("  [%d] %s (ID: %s, Depth: %d, IsAddSubtask: %v)", i, issue.Title, issue.ID, issue.Depth, issue.IsAddSubtask)
 		}
 	}
-	
+
 	// Generate view to capture the visual state in the test output
 	view := model.View()
-	
+
 	// Check that both expanded trees are visible in the view
 	if !strings.Contains(view, "Feature A: User management system") {
 		t.Error("View should contain Feature A")
@@ -545,7 +545,7 @@ func TestTwoExpandedTreesModelState(t *testing.T) {
 	if !strings.Contains(view, "Implement data visualization") {
 		t.Error("View should contain Feature B's third child")
 	}
-	
+
 	// Log the view for debugging
 	t.Log("Final view state with both trees expanded:")
 	t.Log(view)
