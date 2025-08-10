@@ -27,7 +27,7 @@ type model struct {
 	errorMsg          string
 	result            string
 	worktreePath      string
-	worktreeManager   *git.WorktreeManager
+	worktreeManager   git.WorktreeManagerInterface
 	linearClient      *linear.Client
 	linearIssues      []linear.Issue
 	flattenedIssues   []linear.Issue // flattened view for navigation
@@ -112,6 +112,10 @@ func NewTUI() (model, error) {
 	if err != nil {
 		return model{}, err
 	}
+	return NewTUIWithManager(wm)
+}
+
+func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 
 	// Load config to check for Linear API key
 	cfg, err := config.Load()

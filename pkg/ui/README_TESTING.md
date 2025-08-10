@@ -1,15 +1,15 @@
-# Catwalk Testing Framework for Sprout TUI
+# Teatest Testing Framework for Sprout TUI
 
-This directory contains a comprehensive testing framework using [catwalk](https://github.com/knz/catwalk) for systematic testing of the Sprout Bubbletea TUI.
+This directory contains a comprehensive testing framework using [teatest](https://github.com/charmbracelet/x/tree/main/exp/teatest) for systematic testing of the Sprout Bubbletea TUI.
 
 ## Overview
 
-Catwalk enables datadriven testing of Terminal User Interfaces built with [Bubbletea](https://github.com/charmbracelet/bubbletea). It allows us to:
+Teatest enables testing of Terminal User Interfaces built with [Bubbletea](https://github.com/charmbracelet/bubbletea). It allows us to:
 
-- Test keyboard interactions systematically
+- Test keyboard interactions and model updates
 - Verify UI state changes and view rendering
 - Catch regressions in complex navigation flows
-- Document expected behavior through test scenarios
+- Test program output and final model state
 
 ## Test Structure
 
@@ -17,25 +17,8 @@ Catwalk enables datadriven testing of Terminal User Interfaces built with [Bubbl
 
 1. **TestBasicFunctionality** - Unit tests for model initialization and basic state
 2. **TestNavigation** - Unit tests for arrow key navigation logic  
-3. **TestCatwalkSimple** - Catwalk integration test (requires git repository)
-
-### Test Scenarios (`testdata/`)
-
-The `testdata/` directory contains catwalk test scenarios in datadriven format:
-
-#### Navigation Tests
-- `basic_navigation.txt` - Arrow key navigation between input and Linear tickets
-- `tree_expansion.txt` - Expanding/collapsing Linear ticket trees with right arrow
-
-#### Input Handling Tests  
-- `input_mode.txt` - Custom branch name entry and text input behavior
-- `subtask_creation.txt` - Inline subtask creation workflow
-
-#### Edge Cases & Error Handling
-- `error_handling.txt` - Network errors, invalid inputs, API failures
-- `empty_states.txt` - No Linear tickets, empty responses
-- `long_content.txt` - Text truncation and long content handling
-- `keyboard_shortcuts.txt` - Escape, Ctrl+C, Enter key behaviors
+3. **TestTeatestMinimal** - Minimal teatest integration test
+4. **TestTeatestSimple** - Full teatest integration test with mock dependencies
 
 ## Running Tests
 
@@ -46,38 +29,42 @@ go test -v -run TestBasic     # Run basic functionality tests
 go test -v -run TestNav       # Run navigation tests
 ```
 
-### Catwalk Tests (Requires Git Repository)
+### Teatest Tests
 ```bash
-# Enable catwalk tests by uncommenting code in TestCatwalkSimple
-go test -v -run TestCatwalk
+# Run teatest integration tests
+go test -v -run TestTeatest
 
-# Generate/update expected outputs with -rewrite flag
-go test -v -run TestCatwalk -rewrite
+# Run all tests including teatest
+go test -v
 ```
 
-## Test Data Format
+## Teatest API Usage
 
-Catwalk uses a simple datadriven format:
+The teatest framework provides several key functions:
 
-```
-# Test description
-run
-key down    # Send down arrow key
-----
-Expected UI output here...
-
-run  
-type hello  # Type "hello"
-key enter   # Press Enter
-----
-Expected UI output after typing...
+### Creating Test Models
+```go
+tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
 ```
 
-### Available Commands
-- `key up|down|left|right|enter|escape|ctrl+c` - Send key events
-- `type <text>` - Type text into focused input
-- `paste <text>` - Paste text
-- `resize <width> <height>` - Resize terminal
+### Sending Messages
+```go
+// Send keyboard input
+tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+// Send custom messages
+tm.Send(customMessage{})
+```
+
+### Testing Output and State
+```go
+// Get final program output
+output := tm.FinalOutput(t)
+
+// Get final model state  
+finalModel := tm.FinalModel(t)
+```
 
 ## Mock Testing
 
@@ -96,7 +83,7 @@ func CreateTestModel() (model, error) {
 
 ## Integration with Real Dependencies
 
-For full integration testing, the catwalk tests can use the real `NewTUI()` function when:
+For full integration testing, the teatest tests can use the real `NewTUI()` function when:
 
 1. Running in a valid git repository
 2. Linear API token is configured  
@@ -109,32 +96,39 @@ This enables testing the complete user workflow including:
 
 ## Writing New Tests
 
-1. **Create test scenario** in `testdata/new_test.txt`
-2. **Write test commands** using catwalk syntax
-3. **Run with `-rewrite`** to generate expected output
-4. **Review and commit** the test file
+1. **Create test function** using teatest patterns
+2. **Initialize model** with `teatest.NewTestModel()`
+3. **Send interactions** using `tm.Send()`
+4. **Assert results** using `tm.FinalOutput()` or `tm.FinalModel()`
 
 Example:
-```bash
-# Create new test
-echo "run
-key down
-----" > testdata/my_new_test.txt
-
-# Generate expected output
-go test -v -run TestCatwalk -rewrite
-
-# Review generated output in testdata/my_new_test.txt
+```go
+func TestNewFeature(t *testing.T) {
+    model := createTestModel()
+    tm := teatest.NewTestModel(t, model)
+    
+    // Send some interactions
+    tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+    tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+    
+    // Quit the program
+    tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+    
+    // Test final state
+    finalModel := tm.FinalModel(t)
+    // Assert expectations on finalModel
+}
 ```
 
 ## Benefits
 
 This testing framework provides:
 
-- **Systematic verification** of complex TUI behaviors
+- **Programmatic testing** of TUI interactions and state
 - **Regression prevention** through automated UI testing
-- **Documentation** of expected user interactions
+- **Model state verification** at any point in the program lifecycle
+- **Output validation** for visual correctness
 - **Confidence** when refactoring UI logic
 - **Reproducible testing** across different environments
 
-The combination of unit tests for logic and catwalk tests for UI behavior ensures comprehensive coverage of the Sprout TUI functionality.
+The combination of unit tests for logic and teatest for UI behavior ensures comprehensive coverage of the Sprout TUI functionality.

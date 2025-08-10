@@ -10,6 +10,14 @@ import (
 	"sprout/pkg/github"
 )
 
+// WorktreeManagerInterface defines the interface for worktree operations
+type WorktreeManagerInterface interface {
+	CreateWorktree(branchName string) (string, error)
+	ListWorktrees() ([]Worktree, error)
+	PruneWorktree(branchName string) error
+	PruneAllMerged() error
+}
+
 type WorktreeManager struct {
 	repoRoot     string
 	githubClient *github.Client
