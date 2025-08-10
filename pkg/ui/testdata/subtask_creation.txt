@@ -1,0 +1,96 @@
+# Test inline subtask creation workflow
+
+run
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+Loading tickets...
+
+# Navigate to a ticket and expand it to see Add subtask option
+run
+key down
+key right
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  + Add subtask
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Navigate to the "Add subtask" option
+run
+key down
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  + Add subtask
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Activate subtask creation with right arrow
+run
+key right
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  enter subtask title█
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Type a subtask title
+run
+type Add login validation
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  Add login validation█
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Submit the subtask creation
+run
+key enter
+----
+Creating subtask...
+
+# Test canceling subtask creation with Escape
+run
+key down
+key right
+key down
+key right
+type Create password reset
+key escape
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  SPR-128   Add login validation
+  + Add subtask
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Test empty subtask title - should not submit
+run
+key down
+key right
+key enter
+----
+🌱 sprout
+> enter branch name or select suggestion below
+
+  SPR-123   Add user authentication
+  SPR-128   Add login validation
+  enter subtask title█
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing

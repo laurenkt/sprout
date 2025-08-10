@@ -1,0 +1,61 @@
+# Test custom branch name input and text entry
+
+run
+----
+🌱 sprout
+> enter branch name or select suggestion below█
+
+Loading tickets...
+
+# Test typing a custom branch name
+run
+type my-feature-branch
+----
+🌱 sprout
+> my-feature-branch█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features  
+  SPR-127   Fix critical bug in payment processing
+
+# Test submitting the custom branch name
+run  
+key enter
+----
+Creating worktree...
+
+# Test clearing input and typing new text
+run
+key backspace backspace backspace backspace backspace backspace backspace
+type hotfix
+----
+🌱 sprout
+> my-feature-hotfix█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Test that input maintains focus when in input mode
+run
+type -urgent
+----
+🌱 sprout
+> my-feature-hotfix-urgent█
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
+
+# Test empty input behavior - should not submit
+run
+key ctrl+a
+key delete
+key enter
+----
+🌱 sprout
+> █
+
+  SPR-123   Add user authentication
+  SPR-124   Implement dashboard with analytics and reporting features
+  SPR-127   Fix critical bug in payment processing
