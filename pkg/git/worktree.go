@@ -28,11 +28,12 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 }
 
 func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
-	if err := validateBranchName(branchName); err != nil {
-		return "", err
+	sanitizedBranchName := sanitizeBranchName(branchName)
+	if sanitizedBranchName == "" {
+		return "", fmt.Errorf("branch name results in empty string after sanitization")
 	}
 
-	worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", branchName)
+	worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", sanitizedBranchName)
 	
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 		return "", fmt.Errorf("failed to create .worktrees directory: %w", err)
@@ -45,7 +46,7 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 		return "", fmt.Errorf("directory exists but is not a valid worktree: %s", worktreePath)
 	}
 
-	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName)
+	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", sanitizedBranchName)
 	cmd.Dir = wm.repoRoot
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -145,25 +146,52 @@ func parseWorktreeList(output string) []Worktree {
 	return worktrees
 }
 
-func validateBranchName(name string) error {
+func sanitizeBranchName(name string) string {
 	if name == "" {
-		return fmt.Errorf("branch name cannot be empty")
+		return ""
 	}
 	
-	if strings.Contains(name, " ") {
-		return fmt.Errorf("branch name cannot contain spaces")
+	// Convert to lowercase for consistency
+	name = strings.ToLower(name)
+	
+	// Replace spaces and other problematic characters with hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+	name = strings.ReplaceAll(name, "_", "-")
+	
+	// Remove special characters that aren't allowed in git branch names
+	var result strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '.' || r == '/' {
+			result.WriteRune(r)
+		}
+	}
+	name = result.String()
+	
+	// Remove consecutive hyphens
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
 	}
 	
-	if strings.HasPrefix(name, "-") {
-		return fmt.Errorf("branch name cannot start with a dash")
+	// Remove leading/trailing hyphens and dots
+	name = strings.Trim(name, "-.")
+	
+	// Ensure it doesn't start with a slash
+	name = strings.TrimPrefix(name, "/")
+	
+	// Limit length to reasonable size
+	if len(name) > 100 {
+		name = name[:100]
+		name = strings.TrimSuffix(name, "-")
 	}
 	
-	return nil
+	return name
 }
 
 func (wm *WorktreeManager) PruneWorktree(branchName string) error {
-	if err := validateBranchName(branchName); err != nil {
-		return err
+	// For pruning, we should use the branch name as-is since it comes from git worktree list
+	// But we still need to check it's not empty
+	if branchName == "" {
+		return fmt.Errorf("branch name cannot be empty")
 	}
 
 	worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", branchName)
