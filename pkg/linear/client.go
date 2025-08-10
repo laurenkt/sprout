@@ -176,7 +176,6 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 					state: { type: { neq: "completed" } }
 				}
 				orderBy: updatedAt
-				first: 10
 			) {
 				nodes {
 					id
