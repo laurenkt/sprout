@@ -274,14 +274,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.selectedIndex = len(m.flattenedIssues) - 1
 						m.inputMode = false
 						m.textInput.Blur()
+						// Update placeholder with selected issue's branch name
+						if m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
+							m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+						}
 					}
 				} else if m.selectedIndex > 0 {
 					m.selectedIndex--
+					// Update placeholder with selected issue's branch name
+					if m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
+						m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+					}
 				} else {
 					// Go back to custom input
 					m.selectedIndex = -1
 					m.inputMode = true
 					m.textInput.Focus()
+					// Reset placeholder to default
+					m.textInput.Placeholder = "enter branch name or select suggestion below"
 				}
 			}
 			return m, nil
@@ -293,13 +303,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedIndex = 0
 					m.inputMode = false
 					m.textInput.Blur()
+					// Update placeholder with selected issue's branch name
+					if m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
+						m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+					}
 				} else if m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues)-1 {
 					m.selectedIndex++
+					// Update placeholder with selected issue's branch name
+					if m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
+						m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+					}
 				} else if m.selectedIndex == len(m.flattenedIssues)-1 {
 					// Go back to custom input
 					m.selectedIndex = -1
 					m.inputMode = true
 					m.textInput.Focus()
+					// Reset placeholder to default
+					m.textInput.Placeholder = "enter branch name or select suggestion below"
 				}
 			}
 			return m, nil
@@ -376,6 +396,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.linearIssues = msg.issues
 		m.linearError = ""
 		m.flattenIssues()
+		// Update placeholder if a Linear ticket is currently selected
+		if m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
+			m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+		}
 
 	case linearErrorMsg:
 		m.linearLoading = false
@@ -384,6 +408,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case childrenLoadedMsg:
 		m.setIssueChildren(msg.parentID, msg.children)
 		m.flattenIssues()
+		// Update placeholder if a Linear ticket is currently selected
+		if m.selectedIndex >= 0 && m.selectedIndex < len(m.flattenedIssues) && !m.flattenedIssues[m.selectedIndex].IsAddSubtask {
+			m.textInput.Placeholder = m.flattenedIssues[m.selectedIndex].GetBranchName()
+		}
 
 	case childrenErrorMsg:
 		// Could show error message or silently fail
