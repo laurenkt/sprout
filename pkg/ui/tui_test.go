@@ -263,45 +263,23 @@ func TestTeatestMinimalGolden(t *testing.T) {
 	teatest.RequireEqualOutput(t, out)
 }
 
-// TestTeatestGoldenNavigation tests navigation with golden file comparison
+// TestTeatestGoldenNavigation tests navigation with deterministic test model
 func TestTeatestGoldenNavigation(t *testing.T) {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
 	
-	// Create a mock worktree manager for testing
-	mockWM := git.NewMockWorktreeManager("/tmp/test-repo")
-	
-	// Create model with mock dependencies
-	model, err := NewTUIWithManager(mockWM)
+	// Use CreateTestModel for deterministic behavior
+	model, err := CreateTestModel()
 	if err != nil {
-		t.Fatalf("NewTUIWithManager failed: %v", err)
+		t.Fatalf("CreateTestModel failed: %v", err)
 	}
 	
-	// Verify model implements tea.Model interface properly
-	var teaModel tea.Model = model
-	if teaModel == nil {
-		t.Fatal("Model does not implement tea.Model interface")
-	}
-	
-	// Test each method individually first
-	t.Log("Testing Init()...")
-	initCmd := model.Init()
-	t.Logf("Init() returned: %v", initCmd)
-	
-	t.Log("Testing View()...")
-	view := model.View()
-	t.Logf("View() returned %d characters", len(view))
-	
-	t.Log("Testing Update()...")
-	updatedModel, updateCmd := model.Update(nil)
-	t.Logf("Update() returned model and cmd: %v", updateCmd)
-	_ = updatedModel
-	
-	// Now test with teatest and golden files
-	t.Log("Running teatest with golden files...")
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
 	
-	// Send quit message to exit immediately for consistent output
+	// Test navigation: down arrow to select first ticket
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+	
+	// Send quit message to exit
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	
 	// Capture output and compare with golden file
@@ -310,22 +288,17 @@ func TestTeatestGoldenNavigation(t *testing.T) {
 		t.Fatal(err)
 	}
 	teatest.RequireEqualOutput(t, out)
-	
-	t.Log("Golden file test completed successfully")
 }
 
-// TestTeatestGoldenInteraction tests user interactions with golden files
+// TestTeatestGoldenInteraction tests user interactions with deterministic model
 func TestTeatestGoldenInteraction(t *testing.T) {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
 	
-	// Create a mock worktree manager for testing
-	mockWM := git.NewMockWorktreeManager("/tmp/test-repo")
-	
-	// Create model with mock dependencies
-	model, err := NewTUIWithManager(mockWM)
+	// Use CreateTestModel for deterministic behavior
+	model, err := CreateTestModel()
 	if err != nil {
-		t.Fatalf("NewTUIWithManager failed: %v", err)
+		t.Fatalf("CreateTestModel failed: %v", err)
 	}
 	
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
