@@ -17,8 +17,9 @@ Teatest enables testing of Terminal User Interfaces built with [Bubbletea](https
 
 1. **TestBasicFunctionality** - Unit tests for model initialization and basic state
 2. **TestNavigation** - Unit tests for arrow key navigation logic  
-3. **TestTeatestMinimal** - Minimal teatest integration test
-4. **TestTeatestSimple** - Full teatest integration test with mock dependencies
+3. **TestTeatestMinimalGolden** - Minimal teatest with golden file comparison
+4. **TestTeatestGoldenNavigation** - Full model test with golden file output
+5. **TestTeatestGoldenInteraction** - User interaction test with golden files
 
 ## Running Tests
 
@@ -36,11 +37,14 @@ go test -v -run TestTeatest
 
 # Run all tests including teatest
 go test -v
+
+# Generate/update golden files
+go test -v -run TestTeatestGolden -update
 ```
 
 ## Teatest API Usage
 
-The teatest framework provides several key functions:
+The teatest framework provides several key functions for golden file testing:
 
 ### Creating Test Models
 ```go
@@ -64,6 +68,13 @@ output := tm.FinalOutput(t)
 
 // Get final model state  
 finalModel := tm.FinalModel(t)
+
+// Compare output with golden files
+out, err := io.ReadAll(tm.FinalOutput(t))
+if err != nil {
+    t.Fatal(err)
+}
+teatest.RequireEqualOutput(t, out)
 ```
 
 ## Mock Testing
@@ -97,15 +108,19 @@ This enables testing the complete user workflow including:
 ## Writing New Tests
 
 1. **Create test function** using teatest patterns
-2. **Initialize model** with `teatest.NewTestModel()`
-3. **Send interactions** using `tm.Send()`
-4. **Assert results** using `tm.FinalOutput()` or `tm.FinalModel()`
+2. **Set consistent color profile** with `lipgloss.SetColorProfile(termenv.Ascii)`
+3. **Initialize model** with `teatest.NewTestModel()`
+4. **Send interactions** using `tm.Send()`
+5. **Compare with golden files** using `teatest.RequireEqualOutput()`
 
 Example:
 ```go
-func TestNewFeature(t *testing.T) {
+func TestNewFeatureGolden(t *testing.T) {
+    // Set consistent color profile for testing
+    lipgloss.SetColorProfile(termenv.Ascii)
+    
     model := createTestModel()
-    tm := teatest.NewTestModel(t, model)
+    tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
     
     // Send some interactions
     tm.Send(tea.KeyMsg{Type: tea.KeyDown})
@@ -114,21 +129,47 @@ func TestNewFeature(t *testing.T) {
     // Quit the program
     tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
     
-    // Test final state
-    finalModel := tm.FinalModel(t)
-    // Assert expectations on finalModel
+    // Compare output with golden file
+    out, err := io.ReadAll(tm.FinalOutput(t))
+    if err != nil {
+        t.Fatal(err)
+    }
+    teatest.RequireEqualOutput(t, out)
 }
 ```
+
+### Golden File Workflow
+
+1. **Write test function** following the pattern above
+2. **Generate golden file** by running test with `-update` flag:
+   ```bash
+   go test -v -run TestNewFeatureGolden -update
+   ```
+3. **Review generated golden file** in `testdata/TestNewFeatureGolden.golden`
+4. **Run test normally** to verify it passes:
+   ```bash
+   go test -v -run TestNewFeatureGolden
+   ```
+
+## Golden Files
+
+Golden files in `testdata/` capture expected terminal output:
+
+- **Consistent output**: Set `lipgloss.SetColorProfile(termenv.Ascii)` for reproducible results
+- **Line endings**: `.gitattributes` file ensures consistent line endings across platforms
+- **Regeneration**: Use `-update` flag to regenerate expected output when UI changes
+- **Visual testing**: Golden files capture the exact terminal output users see
 
 ## Benefits
 
 This testing framework provides:
 
+- **Visual regression testing** through golden file comparison
 - **Programmatic testing** of TUI interactions and state
 - **Regression prevention** through automated UI testing
-- **Model state verification** at any point in the program lifecycle
-- **Output validation** for visual correctness
+- **Output validation** for exact visual correctness
 - **Confidence** when refactoring UI logic
 - **Reproducible testing** across different environments
+- **Documentation** of expected UI behavior through saved outputs
 
-The combination of unit tests for logic and teatest for UI behavior ensures comprehensive coverage of the Sprout TUI functionality.
+The combination of unit tests for logic and teatest with golden files for UI behavior ensures comprehensive coverage of the Sprout TUI functionality.

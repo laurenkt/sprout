@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"io"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
+	"github.com/muesli/termenv"
 	"sprout/pkg/git"
 	"sprout/pkg/linear"
 )
@@ -241,30 +244,30 @@ func (m minimalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m minimalModel) View() string { return "Hello World" }
 
-// TestTeatestMinimal tests teatest with a minimal model first
-func TestTeatestMinimal(t *testing.T) {
+// TestTeatestMinimalGolden tests teatest with golden file output
+func TestTeatestMinimalGolden(t *testing.T) {
+	// Set consistent color profile for testing
+	lipgloss.SetColorProfile(termenv.Ascii)
+	
 	model := minimalModel{}
-	t.Log("Testing minimal model with teatest...")
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
 	
 	// Send a quit message to make the program exit
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	
-	// Test that the model can be created and produces output
-	output := tm.FinalOutput(t)
-	if output == nil {
-		t.Error("Expected output from model")
+	// Capture output and compare with golden file
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
 	}
-	
-	// Check final model state
-	finalModel := tm.FinalModel(t)
-	if finalModel == nil {
-		t.Error("Expected final model")
-	}
+	teatest.RequireEqualOutput(t, out)
 }
 
-// TestTeatestSimple tests using teatest with the full model
-func TestTeatestSimple(t *testing.T) {
+// TestTeatestGoldenNavigation tests navigation with golden file comparison
+func TestTeatestGoldenNavigation(t *testing.T) {
+	// Set consistent color profile for testing
+	lipgloss.SetColorProfile(termenv.Ascii)
+	
 	// Create a mock worktree manager for testing
 	mockWM := git.NewMockWorktreeManager("/tmp/test-repo")
 	
@@ -294,28 +297,50 @@ func TestTeatestSimple(t *testing.T) {
 	t.Logf("Update() returned model and cmd: %v", updateCmd)
 	_ = updatedModel
 	
-	// Now test with teatest
-	t.Log("Running teatest...")
+	// Now test with teatest and golden files
+	t.Log("Running teatest with golden files...")
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
 	
-	// Test basic navigation interaction first
+	// Send quit message to exit immediately for consistent output
+	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	
+	// Capture output and compare with golden file
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	teatest.RequireEqualOutput(t, out)
+	
+	t.Log("Golden file test completed successfully")
+}
+
+// TestTeatestGoldenInteraction tests user interactions with golden files
+func TestTeatestGoldenInteraction(t *testing.T) {
+	// Set consistent color profile for testing
+	lipgloss.SetColorProfile(termenv.Ascii)
+	
+	// Create a mock worktree manager for testing
+	mockWM := git.NewMockWorktreeManager("/tmp/test-repo")
+	
+	// Create model with mock dependencies
+	model, err := NewTUIWithManager(mockWM)
+	if err != nil {
+		t.Fatalf("NewTUIWithManager failed: %v", err)
+	}
+	
+	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(80, 24))
+	
+	// Test navigation: down arrow to select first ticket, then up to go back
 	tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	tm.Send(tea.KeyMsg{Type: tea.KeyUp})
 	
 	// Send quit message to exit
 	tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	
-	// Test that we can get output
-	output := tm.FinalOutput(t)
-	if output == nil {
-		t.Error("Expected output from model")
+	// Capture output and compare with golden file
+	out, err := io.ReadAll(tm.FinalOutput(t))
+	if err != nil {
+		t.Fatal(err)
 	}
-	
-	// Test that we can access the final model
-	finalModel := tm.FinalModel(t)
-	if finalModel == nil {
-		t.Error("Expected final model")
-	}
-	
-	t.Log("Teatest completed successfully")
+	teatest.RequireEqualOutput(t, out)
 }
