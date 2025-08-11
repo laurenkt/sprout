@@ -30,7 +30,7 @@ type model struct {
 	Result           string
 	WorktreePath     string
 	WorktreeManager  git.WorktreeManagerInterface
-	LinearClient     *linear.Client
+	LinearClient     linear.LinearClientInterface
 	LinearIssues     []linear.Issue
 	FlattenedIssues  []linear.Issue // flattened view for navigation
 	LinearLoading    bool
@@ -125,7 +125,7 @@ func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 		cfg = config.DefaultConfig()
 	}
 
-	var linearClient *linear.Client
+	var linearClient linear.LinearClientInterface
 	linearLoading := false
 	if cfg.LinearAPIKey != "" {
 		linearClient = linear.NewClient(cfg.LinearAPIKey)

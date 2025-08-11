@@ -55,6 +55,15 @@ type User struct {
 	Email       string `json:"email"`
 }
 
+// LinearClientInterface defines the methods needed for Linear API interaction
+type LinearClientInterface interface {
+	GetCurrentUser() (*User, error)
+	GetAssignedIssues() ([]Issue, error)
+	GetIssueChildren(issueID string) ([]Issue, error)
+	CreateSubtask(parentID, title string) (*Issue, error)
+	TestConnection() error
+}
+
 // Client is a Linear API client
 type Client struct {
 	apiKey     string
@@ -484,6 +493,140 @@ func (c *Client) CreateSubtask(parentID, title string) (*Issue, error) {
 func (c *Client) TestConnection() error {
 	_, err := c.GetCurrentUser()
 	return err
+}
+
+// FakeLinearClient simulates Linear API behavior with in-memory data for testing
+type FakeLinearClient struct {
+	issues         map[string]Issue    // All issues by ID
+	topLevelIssues []string           // IDs of root issues (no parent)
+	childrenMap    map[string][]string // parentID -> childIDs
+	currentUser    *User              // Simulated current user
+}
+
+// NewFakeLinearClient creates a new fake Linear client for testing
+func NewFakeLinearClient() *FakeLinearClient {
+	return &FakeLinearClient{
+		issues:         make(map[string]Issue),
+		topLevelIssues: []string{},
+		childrenMap:    make(map[string][]string),
+		currentUser: &User{
+			ID:          "fake-user-id",
+			Name:        "Test User",
+			DisplayName: "Test User",
+			Email:       "test@example.com",
+		},
+	}
+}
+
+// AddIssue adds an issue to the fake client's data store
+func (f *FakeLinearClient) AddIssue(issue Issue, parentID string) {
+	// Store the issue
+	f.issues[issue.ID] = issue
+	
+	if parentID == "" {
+		// Top-level issue
+		f.topLevelIssues = append(f.topLevelIssues, issue.ID)
+	} else {
+		// Child issue - add to parent's children map
+		f.childrenMap[parentID] = append(f.childrenMap[parentID], issue.ID)
+		
+		// Update parent to have children
+		if parent, exists := f.issues[parentID]; exists {
+			parent.HasChildren = true
+			f.issues[parentID] = parent
+		}
+	}
+}
+
+// GetCurrentUser returns the fake current user
+func (f *FakeLinearClient) GetCurrentUser() (*User, error) {
+	return f.currentUser, nil
+}
+
+// GetAssignedIssues returns top-level issues (simulating API behavior)
+func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
+	issues := make([]Issue, 0, len(f.topLevelIssues))
+	
+	for _, issueID := range f.topLevelIssues {
+		if issue, exists := f.issues[issueID]; exists {
+			// Set HasChildren based on whether this issue has children
+			_, hasChildren := f.childrenMap[issueID]
+			issue.HasChildren = hasChildren
+			issue.Depth = 0
+			issue.Expanded = false
+			issues = append(issues, issue)
+		}
+	}
+	
+	return issues, nil
+}
+
+// GetIssueChildren returns children for a given issue ID
+func (f *FakeLinearClient) GetIssueChildren(issueID string) ([]Issue, error) {
+	childIDs, exists := f.childrenMap[issueID]
+	if !exists {
+		return []Issue{}, nil
+	}
+	
+	children := make([]Issue, 0, len(childIDs))
+	for _, childID := range childIDs {
+		if child, exists := f.issues[childID]; exists {
+			// Set HasChildren for child based on whether it has children
+			_, hasChildren := f.childrenMap[childID]
+			child.HasChildren = hasChildren
+			child.Expanded = false
+			children = append(children, child)
+		}
+	}
+	
+	return children, nil
+}
+
+// CreateSubtask creates a new subtask under the given parent issue
+func (f *FakeLinearClient) CreateSubtask(parentID, title string) (*Issue, error) {
+	// Generate a fake ID for the new subtask
+	newID := fmt.Sprintf("fake-subtask-%d", len(f.issues))
+	
+	// Find parent to get identifier prefix
+	parent, exists := f.issues[parentID]
+	if !exists {
+		return nil, fmt.Errorf("parent issue not found: %s", parentID)
+	}
+	
+	// Generate identifier based on parent
+	var identifier string
+	if parent.Identifier != "" {
+		// Extract prefix from parent (e.g., "SPR" from "SPR-123")
+		parts := strings.Split(parent.Identifier, "-")
+		if len(parts) > 0 {
+			identifier = fmt.Sprintf("%s-%d", parts[0], len(f.issues)+1000)
+		} else {
+			identifier = fmt.Sprintf("SUB-%d", len(f.issues))
+		}
+	} else {
+		identifier = fmt.Sprintf("SUB-%d", len(f.issues))
+	}
+	
+	// Create the new subtask
+	subtask := Issue{
+		ID:          newID,
+		Title:       title,
+		Identifier:  identifier,
+		HasChildren: false,
+		Expanded:    false,
+		Depth:       parent.Depth + 1,
+		Children:    []Issue{},
+	}
+	
+	// Add it to our data store
+	f.AddIssue(subtask, parentID)
+	
+	return &subtask, nil
+}
+
+// TestConnection simulates a connection test
+func (f *FakeLinearClient) TestConnection() error {
+	return nil // Always succeeds for fake client
 }
 
 // GetBranchName generates a branch name from an issue

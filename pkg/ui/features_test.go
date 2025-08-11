@@ -16,17 +16,18 @@ import (
 
 // TUITestContext holds the state for our Gherkin tests
 type TUITestContext struct {
-	model     model
-	testModel *teatest.TestModel
-	issues    []linear.Issue
-	output    string
-	t         *testing.T
+	model       model
+	testModel   *teatest.TestModel
+	fakeClient  *linear.FakeLinearClient
+	output      string
+	t           *testing.T
 }
 
 // NewTUITestContext creates a new test context
 func NewTUITestContext(t *testing.T) *TUITestContext {
 	return &TUITestContext{
-		t: t,
+		fakeClient: linear.NewFakeLinearClient(),
+		t:          t,
 	}
 }
 
@@ -73,9 +74,10 @@ func StripANSI(text string) string {
 // Step definitions
 
 func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table) error {
-	// First pass: create all issues
-	allIssues := make(map[string]*linear.Issue)
+	// Clear any existing data
+	tc.fakeClient = linear.NewFakeLinearClient()
 	
+	// Parse table and populate fake client
 	for i, row := range issueTable.Rows {
 		if i == 0 { // Skip header row
 			continue
@@ -85,60 +87,19 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 		title := row.Cells[1].Value
 		parentID := row.Cells[2].Value
 		
-		issue := &linear.Issue{
-			ID:          identifier,  // Use identifier as ID
+		// Create issue with identifier as ID for simplicity in tests
+		issue := linear.Issue{
+			ID:          identifier,
 			Identifier:  identifier,
 			Title:       title,
-			HasChildren: false,      // Will be set in second pass
+			HasChildren: false, // Will be set by FakeLinearClient
 			Expanded:    false,
-			Depth:       0,          // Will be set based on parent relationship
-			Children:    []linear.Issue{},
+			Depth:       0,     // Will be set by UI based on hierarchy
+			Children:    []linear.Issue{}, // Not used in fake client
 		}
 		
-		// Set parent relationship if specified
-		if parentID != "" {
-			issue.Depth = 1 // Child issue
-		}
-		
-		allIssues[identifier] = issue
-	}
-	
-	// Second pass: establish parent-child relationships
-	for i, row := range issueTable.Rows {
-		if i == 0 { // Skip header row
-			continue
-		}
-		
-		identifier := row.Cells[0].Value
-		parentID := row.Cells[2].Value
-		
-		if parentID != "" {
-			if parent, exists := allIssues[parentID]; exists {
-				if child, exists := allIssues[identifier]; exists {
-					parent.HasChildren = true
-					parent.Children = append(parent.Children, *child)
-					child.Parent = parent
-				}
-			}
-		}
-	}
-	
-	// Extract top-level issues in original table order
-	tc.issues = []linear.Issue{}
-	for i, row := range issueTable.Rows {
-		if i == 0 { // Skip header row
-			continue
-		}
-		
-		identifier := row.Cells[0].Value
-		parentID := row.Cells[2].Value
-		
-		// Add to issues if it's a top-level item (no parent)
-		if parentID == "" {
-			if issue, exists := allIssues[identifier]; exists {
-				tc.issues = append(tc.issues, *issue)
-			}
-		}
+		// Add to fake client (it handles parent-child relationships)
+		tc.fakeClient.AddIssue(issue, parentID)
 	}
 	
 	return nil
@@ -177,9 +138,9 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
 	
-	// Create test model with our issues
+	// Create test model with fake client
 	var err error
-	tc.model, err = CreateTestModelWithIssues(tc.issues)
+	tc.model, err = CreateTestModelWithFakeClient(tc.fakeClient)
 	if err != nil {
 		return err
 	}
@@ -215,9 +176,17 @@ func (tc *TUITestContext) iPress(key string) error {
 		tc.testModel.Send(keyMsg)
 	}
 	
-	// Update our local model reference
-	updatedModel, _ := tc.model.Update(keyMsg)
+	// Update our local model reference and execute any returned commands
+	updatedModel, cmd := tc.model.Update(keyMsg)
 	tc.model = updatedModel.(model)
+	
+	// Execute the returned command if there is one
+	if cmd != nil {
+		msg := cmd()
+		// Process the command result
+		finalModel, _ := tc.model.Update(msg)
+		tc.model = finalModel.(model)
+	}
 	
 	return nil
 }
@@ -289,7 +258,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	
 	// Setup a test context for each scenario
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
-		tc.issues = nil
+		tc.fakeClient = linear.NewFakeLinearClient()
 		tc.output = ""
 		tc.t = t // Ensure t is set for each scenario
 		return ctx, nil
