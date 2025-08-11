@@ -43,9 +43,9 @@ Feature: Sprout TUI Tree Expansion
 
       > spr-100-feature-a-user-management-system
       ├──SPR-100  Feature A: User management system
-      │   ├──SPR-101  Add user registration
-      │   ├──SPR-102  Implement user authentication
-      │   └──+ Add subtask
+      │  ├──SPR-101  Add user registration
+      │  ├──SPR-102  Implement user authentication
+      │  └──+ Add subtask
       ├──SPR-200  Feature B: Dashboard and analytics
       └──SPR-300  Bug fix: Payment processing errors
       """
@@ -59,9 +59,9 @@ Feature: Sprout TUI Tree Expansion
 
       > spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  Feature A: User management system
-      │   ├──SPR-101  Add user registration
-      │   ├──SPR-102  Implement user authentication
-      │   └──+ Add subtask
+      │  ├──SPR-101  Add user registration
+      │  ├──SPR-102  Implement user authentication
+      │  └──+ Add subtask
       ├──SPR-200  Feature B: Dashboard and analytics
       └──SPR-300  Bug fix: Payment processing errors
       """
@@ -72,13 +72,13 @@ Feature: Sprout TUI Tree Expansion
 
       > spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  Feature A: User management system
-      │   ├──SPR-101  Add user registration
-      │   ├──SPR-102  Implement user authentication
-      │   └──+ Add subtask
+      │  ├──SPR-101  Add user registration
+      │  ├──SPR-102  Implement user authentication
+      │  └──+ Add subtask
       ├──SPR-200  Feature B: Dashboard and analytics
-      │   ├──SPR-201  Create dashboard layout
-      │   ├──SPR-202  Add analytics widgets
-      │   ├──SPR-203  Implement data visualization
-      │   └──+ Add subtask
+      │  ├──SPR-201  Create dashboard layout
+      │  ├──SPR-202  Add analytics widgets
+      │  ├──SPR-203  Implement data visualization
+      │  └──+ Add subtask
       └──SPR-300  Bug fix: Payment processing errors
       """
