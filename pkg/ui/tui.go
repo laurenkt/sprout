@@ -345,22 +345,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.SelectedIssue = nextSib
 							m.TextInput.Placeholder = nextSib.GetBranchName()
 						} else {
-							// No next sibling, go up and try parent's next sibling
-							current := m.SelectedIssue.Parent
-							for current != nil {
-								if nextSib := current.NextSibling(m.LinearIssues); nextSib != nil {
-									m.SelectedIssue = nextSib
-									m.TextInput.Placeholder = nextSib.GetBranchName()
-									break
+							// No next sibling, check if parent is expanded and we haven't shown "Add subtask" yet
+							if m.SelectedIssue.Parent != nil && m.SelectedIssue.Parent.Expanded {
+								// Go to "Add subtask" placeholder for the parent
+								m.SelectedIssue = m.createAddSubtaskPlaceholder(m.SelectedIssue.Parent.ID)
+							} else {
+								// Go up and try parent's next sibling
+								current := m.SelectedIssue.Parent
+								for current != nil {
+									if nextSib := current.NextSibling(m.LinearIssues); nextSib != nil {
+										m.SelectedIssue = nextSib
+										m.TextInput.Placeholder = nextSib.GetBranchName()
+										break
+									}
+									current = current.Parent
 								}
-								current = current.Parent
-							}
-							if current == nil {
-								// End of tree, wrap to custom input
-								m.SelectedIssue = nil
-								m.InputMode = true
-								m.TextInput.Focus()
-								m.TextInput.Placeholder = "enter branch name or select suggestion below"
+								if current == nil {
+									// End of tree, wrap to custom input
+									m.SelectedIssue = nil
+									m.InputMode = true
+									m.TextInput.Focus()
+									m.TextInput.Placeholder = "enter branch name or select suggestion below"
+								}
 							}
 						}
 					}
