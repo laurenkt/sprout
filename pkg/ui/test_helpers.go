@@ -119,6 +119,58 @@ func CreateTestModelWithIssues(issues []linear.Issue) (model, error) {
 	return createTestModelWithIssues(issues)
 }
 
+// CreateTestModelWithFakeClient creates a test model with a fake Linear client
+func CreateTestModelWithFakeClient(fakeClient *linear.FakeLinearClient) (model, error) {
+	// Initialize text inputs
+	ti := textinput.New()
+	ti.Placeholder = "enter branch name or select suggestion below"
+	ti.Focus()
+	ti.CharLimit = 156
+	ti.Width = 80
+	ti.Prompt = "> "
+	
+	si := textinput.New()
+	si.Placeholder = "enter subtask title"
+	si.CharLimit = 100
+	si.Width = 50
+	si.Prompt = ""
+	
+	// Create a basic model structure for testing
+	m := model{
+		TextInput:         ti,
+		SubtaskInput:      si,
+		Submitted:         false,
+		Creating:          false,
+		Done:              false,
+		Success:           false,
+		Cancelled:         false,
+		ErrorMsg:          "",
+		Result:            "",
+		WorktreePath:      "",
+		WorktreeManager:   nil, // Skip for testing
+		LinearClient:      fakeClient, // Use fake client
+		LinearIssues:      nil, // Will be loaded via GetAssignedIssues()
+		FlattenedIssues:   nil,
+		LinearLoading:     true, // Start loading to simulate real behavior
+		LinearError:       "",
+		SelectedIndex:     -1, // Start with custom input selected
+		InputMode:         true,
+		CreatingSubtask:   false,
+		SubtaskInputMode:  false,
+		SubtaskParentID:   "",
+	}
+	
+	// Initialize by loading issues from fake client to match real behavior
+	issues, err := fakeClient.GetAssignedIssues()
+	if err == nil {
+		m.LinearIssues = issues
+		m.LinearLoading = false
+		m.flattenIssues()
+	}
+	
+	return m, nil
+}
+
 // createTestModelWithIssues is the internal implementation
 func createTestModelWithIssues(issues []linear.Issue) (model, error) {
 	// Initialize text inputs
