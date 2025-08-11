@@ -629,6 +629,148 @@ func (f *FakeLinearClient) TestConnection() error {
 	return nil // Always succeeds for fake client
 }
 
+// NextVisible returns the next visible issue in the tree traversal order
+func (i *Issue) NextVisible(roots []Issue) *Issue {
+	// For add subtask placeholders, find the parent and get its next sibling
+	if i.IsAddSubtask {
+		parent := i.findParent(roots)
+		if parent != nil {
+			// Try to find next sibling of parent
+			if nextSib := parent.NextSibling(roots); nextSib != nil {
+				return nextSib
+			}
+			// If no next sibling, go up to parent's parent and try its next sibling
+			current := parent.Parent
+			for current != nil {
+				if nextSib := current.NextSibling(roots); nextSib != nil {
+					return nextSib
+				}
+				current = current.Parent
+			}
+		}
+		return nil
+	}
+	
+	// If this issue is expanded and has children, go to first child
+	if i.Expanded && len(i.Children) > 0 {
+		return &i.Children[0]
+	}
+	
+	// Try to find next sibling
+	if nextSib := i.NextSibling(roots); nextSib != nil {
+		return nextSib
+	}
+	
+	// Go up to parent and try its next sibling
+	current := i.Parent
+	for current != nil {
+		if nextSib := current.NextSibling(roots); nextSib != nil {
+			return nextSib
+		}
+		current = current.Parent
+	}
+	
+	return nil // End of tree
+}
+
+// PrevVisible returns the previous visible issue in the tree traversal order  
+func (i *Issue) PrevVisible(roots []Issue) *Issue {
+	// For "Add subtask" placeholders, go to the last child of parent if any, otherwise parent
+	if i.IsAddSubtask {
+		parent := i.findParent(roots)
+		if parent != nil {
+			if parent.Expanded && len(parent.Children) > 0 {
+				// Go to last visible child of parent
+				return parent.Children[len(parent.Children)-1].LastVisible()
+			}
+			return parent
+		}
+		return nil
+	}
+	
+	// Try to find previous sibling
+	if prevSib := i.prevSibling(roots); prevSib != nil {
+		// Go to the last visible item under the previous sibling
+		return prevSib.LastVisible()
+	}
+	
+	// Go to parent
+	return i.Parent
+}
+
+// findParent finds the parent issue by ID in the tree
+func (i *Issue) findParent(roots []Issue) *Issue {
+	if i.SubtaskParentID == "" {
+		return nil
+	}
+	
+	var find func(issues []Issue) *Issue
+	find = func(issues []Issue) *Issue {
+		for j := range issues {
+			if issues[j].ID == i.SubtaskParentID {
+				return &issues[j]
+			}
+			if found := find(issues[j].Children); found != nil {
+				return found
+			}
+		}
+		return nil
+	}
+	
+	return find(roots)
+}
+
+// NextSibling finds the next sibling of this issue
+func (i *Issue) NextSibling(roots []Issue) *Issue {
+	if i.Parent != nil {
+		// Look in parent's children
+		for j, sibling := range i.Parent.Children {
+			if sibling.ID == i.ID && j < len(i.Parent.Children)-1 {
+				return &i.Parent.Children[j+1]
+			}
+		}
+	} else {
+		// Look in root issues
+		for j, root := range roots {
+			if root.ID == i.ID && j < len(roots)-1 {
+				return &roots[j+1]
+			}
+		}
+	}
+	return nil
+}
+
+// prevSibling finds the previous sibling of this issue
+func (i *Issue) prevSibling(roots []Issue) *Issue {
+	if i.Parent != nil {
+		// Look in parent's children
+		for j, sibling := range i.Parent.Children {
+			if sibling.ID == i.ID && j > 0 {
+				return &i.Parent.Children[j-1]
+			}
+		}
+	} else {
+		// Look in root issues
+		for j, root := range roots {
+			if root.ID == i.ID && j > 0 {
+				return &roots[j-1]
+			}
+		}
+	}
+	return nil
+}
+
+// LastVisible returns the last visible item in this subtree
+func (i *Issue) LastVisible() *Issue {
+	// If expanded and has children, return the last visible of the last child
+	if i.Expanded && len(i.Children) > 0 {
+		return i.Children[len(i.Children)-1].LastVisible()
+	}
+	
+	// If not expanded or no children, this issue is the last visible
+	return i
+}
+
 // GetBranchName generates a branch name from an issue
 func (i *Issue) GetBranchName() string {
 	// Safety check for placeholder issues
