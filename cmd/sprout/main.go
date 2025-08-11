@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	
 	"github.com/charmbracelet/lipgloss"
@@ -249,6 +250,19 @@ func handleDoctorCommand(cfg *config.Config) {
 			fmt.Printf("  %s: %s\n", accentStyle.Render("Config File"), warningStyle.Render("not found (using defaults)"))
 		} else {
 			fmt.Printf("  %s: %s\n", accentStyle.Render("Config File"), normalStyle.Render("exists"))
+		}
+	}
+	
+	fmt.Println()
+	fmt.Println(headerStyle.Render("Sparse Checkout"))
+	fmt.Println()
+	
+	if len(cfg.SparseCheckout) == 0 {
+		fmt.Printf("  %s: %s\n", accentStyle.Render("Configured Repositories"), normalStyle.Render("none"))
+	} else {
+		fmt.Printf("  %s: %s\n", accentStyle.Render("Configured Repositories"), normalStyle.Render(fmt.Sprintf("%d", len(cfg.SparseCheckout))))
+		for repoPath, directories := range cfg.SparseCheckout {
+			fmt.Printf("    %s: %s\n", normalStyle.Render(repoPath), normalStyle.Render(fmt.Sprintf("[%s]", strings.Join(directories, ", "))))
 		}
 	}
 	

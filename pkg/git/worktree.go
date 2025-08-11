@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	
+	"sprout/pkg/config"
 	"sprout/pkg/github"
 )
 
@@ -54,7 +55,24 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 		return "", fmt.Errorf("directory exists but is not a valid worktree: %s", worktreePath)
 	}
 
-	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", sanitizedBranchName)
+	// Check if sparse checkout is configured for this repository
+	cfg, err := config.Load()
+	if err != nil {
+		// Log warning but continue with normal worktree creation
+		fmt.Printf("Warning: failed to load config, using normal checkout: %v\n", err)
+		return wm.createNormalWorktree(worktreePath, sanitizedBranchName)
+	}
+
+	directories, hasSparseCheckout := cfg.GetSparseCheckoutDirectories(wm.repoRoot)
+	if hasSparseCheckout {
+		return wm.createSparseWorktree(worktreePath, sanitizedBranchName, directories)
+	}
+
+	return wm.createNormalWorktree(worktreePath, sanitizedBranchName)
+}
+
+func (wm *WorktreeManager) createNormalWorktree(worktreePath, branchName string) (string, error) {
+	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName)
 	cmd.Dir = wm.repoRoot
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -62,6 +80,64 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 			return worktreePath, nil
 		}
 		return "", fmt.Errorf("failed to create worktree: %w\nOutput: %s", err, string(output))
+	}
+
+	return worktreePath, nil
+}
+
+func (wm *WorktreeManager) createSparseWorktree(worktreePath, branchName string, directories []string) (string, error) {
+	// Create worktree without checkout
+	cmd := exec.Command("git", "worktree", "add", "--no-checkout", worktreePath, "-b", branchName)
+	cmd.Dir = wm.repoRoot
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		if strings.Contains(string(output), "already exists") {
+			return worktreePath, nil
+		}
+		return "", fmt.Errorf("failed to create worktree: %w\nOutput: %s", err, string(output))
+	}
+
+	// Initialize sparse checkout with cone mode
+	cmd = exec.Command("git", "sparse-checkout", "init", "--cone")
+	cmd.Dir = worktreePath
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		fmt.Printf("Warning: failed to initialize sparse checkout, falling back to normal checkout: %v\nOutput: %s\n", err, string(output))
+		// Fallback: checkout everything
+		return wm.checkoutAll(worktreePath)
+	}
+
+	// Set sparse checkout directories
+	args := append([]string{"sparse-checkout", "set"}, directories...)
+	cmd = exec.Command("git", args...)
+	cmd.Dir = worktreePath
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		fmt.Printf("Warning: failed to set sparse checkout patterns, falling back to normal checkout: %v\nOutput: %s\n", err, string(output))
+		// Fallback: checkout everything
+		return wm.checkoutAll(worktreePath)
+	}
+
+	// Checkout with sparse patterns applied
+	cmd = exec.Command("git", "checkout")
+	cmd.Dir = worktreePath
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		fmt.Printf("Warning: failed to checkout with sparse patterns, falling back to normal checkout: %v\nOutput: %s\n", err, string(output))
+		// Fallback: checkout everything
+		return wm.checkoutAll(worktreePath)
+	}
+
+	fmt.Printf("Created sparse worktree with directories: %s\n", strings.Join(directories, ", "))
+	return worktreePath, nil
+}
+
+func (wm *WorktreeManager) checkoutAll(worktreePath string) (string, error) {
+	cmd := exec.Command("git", "checkout")
+	cmd.Dir = worktreePath
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to checkout: %w\nOutput: %s", err, string(output))
 	}
 
 	return worktreePath, nil

@@ -12,14 +12,16 @@ import (
 )
 
 type Config struct {
-	DefaultCommand string `json:"defaultCommand,omitempty"`
-	LinearAPIKey   string `json:"linearApiKey,omitempty"`
+	DefaultCommand  string              `json:"defaultCommand,omitempty"`
+	LinearAPIKey    string              `json:"linearApiKey,omitempty"`
+	SparseCheckout  map[string][]string `json:"sparseCheckout,omitempty"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		DefaultCommand: "",
 		LinearAPIKey:   "",
+		SparseCheckout: make(map[string][]string),
 	}
 }
 
@@ -55,6 +57,7 @@ func Load() (*Config, error) {
 	validKeys := map[string]bool{
 		"defaultCommand": true,
 		"linearApiKey":   true,
+		"sparseCheckout": true,
 	}
 
 	var unknownKeys []string
@@ -65,7 +68,7 @@ func Load() (*Config, error) {
 	}
 
 	if len(unknownKeys) > 0 {
-		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - linearApiKey: string (API key for Linear integration)", unknownKeys)
+		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - linearApiKey: string (API key for Linear integration)\n  - sparseCheckout: object (map of repository paths to directory arrays)", unknownKeys)
 	}
 
 	// Now parse into the actual config struct
@@ -122,4 +125,17 @@ func (c *Config) GetDefaultCommand() []string {
 
 func (c *Config) GetLinearAPIKey() string {
 	return c.LinearAPIKey
+}
+
+func (c *Config) GetSparseCheckoutDirectories(repoPath string) ([]string, bool) {
+	if c.SparseCheckout == nil {
+		return nil, false
+	}
+	
+	directories, exists := c.SparseCheckout[repoPath]
+	if !exists || len(directories) == 0 {
+		return nil, false
+	}
+	
+	return directories, true
 }
