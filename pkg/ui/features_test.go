@@ -19,7 +19,6 @@ type TUITestContext struct {
 	model       model
 	testModel   *teatest.TestModel
 	fakeClient  *linear.FakeLinearClient
-	output      string
 	t           *testing.T
 }
 
@@ -106,33 +105,6 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 }
 
 
-func (tc *TUITestContext) iHaveAMinimalTUIModel() error {
-	// Use the MinimalModel from test_helpers
-	tc.output = "Hello World" // Set expected output for minimal model
-	return nil
-}
-
-func (tc *TUITestContext) iRenderTheView() error {
-	// For minimal model, we already set the output
-	return nil
-}
-
-func (tc *TUITestContext) theOutputShouldBe(expected string) error {
-	if tc.output != expected {
-		return fmt.Errorf("output mismatch: expected %q, got %q", expected, tc.output)
-	}
-	return nil
-}
-
-func (tc *TUITestContext) iSendAQuitCommand() error {
-	// Simulate quit command
-	return nil
-}
-
-func (tc *TUITestContext) theProgramShouldExitGracefully() error {
-	// Simulate graceful exit
-	return nil
-}
 
 func (tc *TUITestContext) iStartTheSproutTUI() error {
 	// Set consistent color profile for testing
@@ -140,10 +112,13 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 	
 	// Create test model with fake client
 	var err error
-	tc.model, err = CreateTestModelWithFakeClient(tc.fakeClient)
+	tc.model, err = NewTUIWithDependencies(nil, tc.fakeClient)
 	if err != nil {
 		return err
 	}
+	
+	// Manually execute the initialization to trigger loading
+	tc.executeInitialization()
 	
 	if tc.t != nil {
 		tc.testModel = teatest.NewTestModel(tc.t, tc.model, teatest.WithInitialTermSize(80, 24))
@@ -151,6 +126,27 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 	
 	return nil
 }
+
+// executeInitialization simulates the full TUI initialization process including async loading
+func (tc *TUITestContext) executeInitialization() {
+	// Manually trigger the linear loading since we can't easily execute tea.Batch in tests
+	if tc.model.LinearClient != nil && tc.model.LinearLoading {
+		// Simulate the fetchLinearIssues command
+		issues, err := tc.model.LinearClient.GetAssignedIssues()
+		
+		var msg tea.Msg
+		if err != nil {
+			msg = linearErrorMsg{err}
+		} else {
+			msg = linearIssuesLoadedMsg{issues}
+		}
+		
+		// Update the model with the loading result
+		updatedModel, _ := tc.model.Update(msg)
+		tc.model = updatedModel.(model)
+	}
+}
+
 
 func (tc *TUITestContext) iPress(key string) error {
 	var keyMsg tea.KeyMsg
@@ -259,18 +255,12 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	// Setup a test context for each scenario
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 		tc.fakeClient = linear.NewFakeLinearClient()
-		tc.output = ""
 		tc.t = t // Ensure t is set for each scenario
 		return ctx, nil
 	})
 	
 	// Step definitions
 	ctx.Step(`^the following Linear issues exist:$`, tc.theFollowingLinearIssuesExist)
-	ctx.Step(`^I have a minimal TUI model$`, tc.iHaveAMinimalTUIModel)
-	ctx.Step(`^I render the view$`, tc.iRenderTheView)
-	ctx.Step(`^the output should be "([^"]*)"$`, tc.theOutputShouldBe)
-	ctx.Step(`^I send a quit command$`, tc.iSendAQuitCommand)
-	ctx.Step(`^the program should exit gracefully$`, tc.theProgramShouldExitGracefully)
 	ctx.Step(`^I start the Sprout TUI$`, tc.iStartTheSproutTUI)
 	ctx.Step(`^I press "([^"]*)"$`, tc.iPress)
 	ctx.Step(`^the UI should display:$`, tc.theUIShouldDisplay)

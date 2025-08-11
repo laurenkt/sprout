@@ -118,7 +118,6 @@ func NewTUI() (model, error) {
 }
 
 func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
-
 	// Load config to check for Linear API key
 	cfg, err := config.Load()
 	if err != nil {
@@ -126,11 +125,14 @@ func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 	}
 
 	var linearClient linear.LinearClientInterface
-	linearLoading := false
 	if cfg.LinearAPIKey != "" {
 		linearClient = linear.NewClient(cfg.LinearAPIKey)
-		linearLoading = true // We'll start loading immediately in Init
 	}
+
+	return NewTUIWithDependencies(wm, linearClient)
+}
+
+func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear.LinearClientInterface) (model, error) {
 
 	// Initialize main text input
 	ti := textinput.New()
@@ -179,7 +181,7 @@ func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 		LinearClient:     linearClient,
 		LinearIssues:     nil,
 		FlattenedIssues:  nil,
-		LinearLoading:    linearLoading,
+		LinearLoading:    linearClient != nil, // Start loading if we have a client
 		LinearError:      "",
 		SelectedIndex:    -1, // Start with custom input selected
 		InputMode:        true,
@@ -802,7 +804,9 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue, flatIndex *in
 	// If expanded and has children or needs to show "Add subtask"
 	if issue.Expanded {
 		// Create a new tree node with the issue as root
-		issueNode := tree.New().Root(content)
+		issueNode := tree.New().Root(content).
+			ItemStyle(normalStyle).
+			EnumeratorStyle(expandedStyle)
 		
 		// Add actual children
 		for _, child := range issue.Children {
