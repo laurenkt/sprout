@@ -5,17 +5,15 @@ Feature: Sprout TUI Tree Expansion
 
   Scenario: Expand multiple issue trees
     Given the following Linear issues exist:
-      | id      | identifier | title                                | has_children | children                    |
-      | issue-1 | SPR-100    | Feature A: User management system    | true         | issue-1-1,issue-1-2         |
-      | issue-2 | SPR-200    | Feature B: Dashboard and analytics   | true         | issue-2-1,issue-2-2,issue-2-3 |
-      | issue-3 | SPR-300    | Bug fix: Payment processing errors   | false        |                             |
-    And the child issues are:
-      | id        | identifier | title                         | parent_id |
-      | issue-1-1 | SPR-101    | Add user registration         | issue-1   |
-      | issue-1-2 | SPR-102    | Implement user authentication | issue-1   |
-      | issue-2-1 | SPR-201    | Create dashboard layout       | issue-2   |
-      | issue-2-2 | SPR-202    | Add analytics widgets         | issue-2   |
-      | issue-2-3 | SPR-203    | Implement data visualization  | issue-2   |
+      | identifier | title                         | parent_id |
+      | SPR-100    | Feature A: User management system    |           |
+      | SPR-101    | Add user registration         | SPR-100   |
+      | SPR-102    | Implement user authentication | SPR-100   |
+      | SPR-200    | Feature B: Dashboard and analytics   |           |
+      | SPR-201    | Create dashboard layout       | SPR-200   |
+      | SPR-202    | Add analytics widgets         | SPR-200   |
+      | SPR-203    | Implement data visualization  | SPR-200   |
+      | SPR-300    | Bug fix: Payment processing errors   |           |
     When I start the Sprout TUI
     Then the UI should display:
       """

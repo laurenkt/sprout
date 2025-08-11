@@ -16,19 +16,17 @@ import (
 
 // TUITestContext holds the state for our Gherkin tests
 type TUITestContext struct {
-	model       model
-	testModel   *teatest.TestModel
-	issues      []linear.Issue
-	childIssues map[string][]linear.Issue
-	output      string
-	t           *testing.T
+	model     model
+	testModel *teatest.TestModel
+	issues    []linear.Issue
+	output    string
+	t         *testing.T
 }
 
 // NewTUITestContext creates a new test context
 func NewTUITestContext(t *testing.T) *TUITestContext {
 	return &TUITestContext{
-		t:           t,
-		childIssues: make(map[string][]linear.Issue),
+		t: t,
 	}
 }
 
@@ -75,64 +73,77 @@ func StripANSI(text string) string {
 // Step definitions
 
 func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table) error {
-	tc.issues = []linear.Issue{}
+	// First pass: create all issues
+	allIssues := make(map[string]*linear.Issue)
 	
 	for i, row := range issueTable.Rows {
 		if i == 0 { // Skip header row
 			continue
 		}
 		
-		issue := linear.Issue{
-			ID:          row.Cells[0].Value,
-			Identifier:  row.Cells[1].Value,
-			Title:       row.Cells[2].Value,
-			HasChildren: row.Cells[3].Value == "true",
+		identifier := row.Cells[0].Value
+		title := row.Cells[1].Value
+		parentID := row.Cells[2].Value
+		
+		issue := &linear.Issue{
+			ID:          identifier,  // Use identifier as ID
+			Identifier:  identifier,
+			Title:       title,
+			HasChildren: false,      // Will be set in second pass
 			Expanded:    false,
+			Depth:       0,          // Will be set based on parent relationship
+			Children:    []linear.Issue{},
 		}
 		
-		// Store children IDs for later processing
-		if row.Cells[4].Value != "" {
-			childIDs := strings.Split(row.Cells[4].Value, ",")
-			issue.Children = make([]linear.Issue, len(childIDs))
+		// Set parent relationship if specified
+		if parentID != "" {
+			issue.Depth = 1 // Child issue
 		}
 		
-		tc.issues = append(tc.issues, issue)
+		allIssues[identifier] = issue
 	}
 	
-	return nil
-}
-
-func (tc *TUITestContext) theChildIssuesAre(childTable *godog.Table) error {
-	for i, row := range childTable.Rows {
+	// Second pass: establish parent-child relationships
+	for i, row := range issueTable.Rows {
 		if i == 0 { // Skip header row
 			continue
 		}
 		
-		child := linear.Issue{
-			ID:         row.Cells[0].Value,
-			Identifier: row.Cells[1].Value,
-			Title:      row.Cells[2].Value,
-			Depth:      1,
+		identifier := row.Cells[0].Value
+		parentID := row.Cells[2].Value
+		
+		if parentID != "" {
+			if parent, exists := allIssues[parentID]; exists {
+				if child, exists := allIssues[identifier]; exists {
+					parent.HasChildren = true
+					parent.Children = append(parent.Children, *child)
+					child.Parent = parent
+				}
+			}
+		}
+	}
+	
+	// Extract top-level issues in original table order
+	tc.issues = []linear.Issue{}
+	for i, row := range issueTable.Rows {
+		if i == 0 { // Skip header row
+			continue
 		}
 		
-		parentID := row.Cells[3].Value
+		identifier := row.Cells[0].Value
+		parentID := row.Cells[2].Value
 		
-		// Find parent and add child
-		for j := range tc.issues {
-			if tc.issues[j].ID == parentID {
-				for k := range tc.issues[j].Children {
-					if tc.issues[j].Children[k].ID == "" {
-						tc.issues[j].Children[k] = child
-						break
-					}
-				}
-				break
+		// Add to issues if it's a top-level item (no parent)
+		if parentID == "" {
+			if issue, exists := allIssues[identifier]; exists {
+				tc.issues = append(tc.issues, *issue)
 			}
 		}
 	}
 	
 	return nil
 }
+
 
 func (tc *TUITestContext) iHaveAMinimalTUIModel() error {
 	// Use the MinimalModel from test_helpers
@@ -273,13 +284,11 @@ func trimEmptyLines(lines []string) []string {
 // InitializeScenario initializes godog with our step definitions
 func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	tc := &TUITestContext{
-		childIssues: make(map[string][]linear.Issue),
-		t:           t,
+		t: t,
 	}
 	
 	// Setup a test context for each scenario
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
-		tc.childIssues = make(map[string][]linear.Issue)
 		tc.issues = nil
 		tc.output = ""
 		tc.t = t // Ensure t is set for each scenario
@@ -288,7 +297,6 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	
 	// Step definitions
 	ctx.Step(`^the following Linear issues exist:$`, tc.theFollowingLinearIssuesExist)
-	ctx.Step(`^the child issues are:$`, tc.theChildIssuesAre)
 	ctx.Step(`^I have a minimal TUI model$`, tc.iHaveAMinimalTUIModel)
 	ctx.Step(`^I render the view$`, tc.iRenderTheView)
 	ctx.Step(`^the output should be "([^"]*)"$`, tc.theOutputShouldBe)

@@ -5,14 +5,12 @@ Feature: Sprout TUI Navigation
 
   Background:
     Given the following Linear issues exist:
-      | id      | identifier | title                                           | has_children | children        |
-      | issue-1 | SPR-123    | Add user authentication                         | false        |                 |
-      | issue-2 | SPR-124    | Implement dashboard with analytics and reporting | true         | issue-2-1,issue-2-2 |
-      | issue-3 | SPR-127    | Fix critical bug in payment processing          | false        |                 |
-    And the child issues are:
-      | id        | identifier | title                     | parent_id |
-      | issue-2-1 | SPR-125    | Create analytics component | issue-2   |
-      | issue-2-2 | SPR-126    | Add reporting metrics      | issue-2   |
+      | identifier | title                                           | parent_id |
+      | SPR-123    | Add user authentication                         |           |
+      | SPR-124    | Implement dashboard with analytics and reporting |           |
+      | SPR-125    | Create analytics component                      | SPR-124   |
+      | SPR-126    | Add reporting metrics                           | SPR-124   |
+      | SPR-127    | Fix critical bug in payment processing          |           |
 
   Scenario: Initial TUI display
     When I start the Sprout TUI
