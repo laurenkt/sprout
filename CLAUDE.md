@@ -128,7 +128,7 @@ Based on the README and current structure, the development order should likely b
 ### Testing Strategy
 - Add `*_test.go` files alongside implementation
 - Focus on unit tests for core git and linear operations
-- Consider integration tests for full workflows
+- BDD tests using Cucumber/Gherkin for TUI behavior (see BDD Testing section below)
 
 ## Key Integration Points
 
@@ -155,6 +155,78 @@ The application will need configuration for:
 - Default branch naming patterns
 - Worktree directory preferences
 - User interface customizations
+
+## BDD Testing
+
+The project uses Behavior-Driven Development (BDD) testing with Cucumber/Gherkin to test the terminal UI behavior. This provides human-readable test scenarios that describe how the TUI should behave.
+
+### Test Structure
+
+**Feature Files**: `/features/*.feature`
+- Written in Gherkin syntax (Given/When/Then)
+- Define user scenarios and expected UI behavior
+- Test files:
+  - `navigation.feature` - Basic TUI navigation and input
+  - `expansion.feature` - Issue tree expansion/collapse behavior  
+  - `interaction.feature` - User interaction patterns
+
+**Step Definitions**: `/pkg/ui/features_test.go`
+- Go code that implements the Gherkin steps
+- Uses `github.com/cucumber/godog` for BDD testing
+- Integrates with `github.com/charmbracelet/x/exp/teatest` for TUI testing
+
+### Test Data Format
+
+Linear issues are defined using a simple table format:
+
+```gherkin
+Given the following Linear issues exist:
+  | identifier | title                              | parent_id |
+  | SPR-123    | Add user authentication            |           |
+  | SPR-124    | Implement dashboard                |           |
+  | SPR-125    | Create analytics component         | SPR-124   |
+  | SPR-126    | Add reporting metrics              | SPR-124   |
+```
+
+Key points:
+- `identifier` serves as both ID and display identifier (e.g., SPR-123)
+- `parent_id` references the parent issue's identifier for sub-issues
+- Empty `parent_id` indicates a top-level issue
+- Issues with children automatically get `HasChildren: true` set
+
+### Running BDD Tests
+
+```bash
+# Run all BDD tests
+go test ./pkg/ui/
+
+# Run with verbose output to see scenario details
+go test -v ./pkg/ui/
+
+# Run tests with Gherkin output formatting
+go test ./pkg/ui/ 2>&1 | less -R
+```
+
+### Making Changes to BDD Tests
+
+1. **Adding new scenarios**: Edit the `.feature` files in `/features/` directory
+2. **Adding new step definitions**: Add step functions to `features_test.go`
+3. **Modifying test data**: Update the issue tables in the feature files
+4. **Testing UI changes**: Run the BDD tests to verify TUI behavior matches expected output
+
+The BDD tests are particularly useful for:
+- Verifying keyboard navigation works correctly
+- Ensuring UI output matches expected format
+- Testing issue tree expansion/collapse behavior
+- Validating user interaction workflows
+
+### Test Context Management
+
+The `TUITestContext` struct maintains test state:
+- `issues` - Linear issues loaded from test data
+- `model` - The TUI model being tested
+- `testModel` - Teatest wrapper for sending key events
+- Test scenarios are isolated - each gets a fresh context
 
 # When raising PRs
 
