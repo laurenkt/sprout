@@ -29,7 +29,7 @@ Feature: Sprout TUI Interaction
       """
       🌱 sprout
 
-      > enter branch name or select suggestion below
+      > show-repo-name-at-front-of-prompt/enter branch name or select suggestion below
       ├──SPR-123  Add user authentication
       ├──SPR-124  Implement dashboard with analytics and reporting
       └──SPR-127  Fix critical bug in payment processing

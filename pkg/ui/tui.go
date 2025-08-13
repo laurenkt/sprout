@@ -40,6 +40,7 @@ type model struct {
 	SubtaskInputMode   bool   // true when editing subtask inline
 	SubtaskParentID    string // ID of parent issue when creating subtask
 	AddSubtaskSelected string // ID of parent issue whose "Add subtask" is selected
+	DefaultPlaceholder string // The default placeholder text for the input
 }
 
 var (
@@ -133,10 +134,23 @@ func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 }
 
 func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear.LinearClientInterface) (model, error) {
+	// Get repository name for the prompt
+	repoName, err := git.GetRepositoryName()
+	if err != nil {
+		// Fallback to a generic prompt if we can't get the repo name
+		repoName = ""
+	}
+
+	var placeholder string
+	if repoName != "" {
+		placeholder = repoName + "/enter branch name or select suggestion below"
+	} else {
+		placeholder = "enter branch name or select suggestion below"
+	}
 
 	// Initialize main text input
 	ti := textinput.New()
-	ti.Placeholder = "enter branch name or select suggestion below"
+	ti.Placeholder = placeholder
 	ti.Focus()
 	ti.CharLimit = 156
 	ti.Width = 80
@@ -188,6 +202,7 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		SubtaskInputMode:   false,
 		SubtaskParentID:    "",
 		AddSubtaskSelected: "",
+		DefaultPlaceholder: placeholder,
 	}, nil
 }
 
@@ -302,7 +317,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.SelectedIssue = nil
 						m.InputMode = true
 						m.TextInput.Focus()
-						m.TextInput.Placeholder = "enter branch name or select suggestion below"
+						m.TextInput.Placeholder = m.DefaultPlaceholder
 					}
 				}
 			}
@@ -324,7 +339,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.AddSubtaskSelected = ""
 							m.InputMode = true
 							m.TextInput.Focus()
-							m.TextInput.Placeholder = "enter branch name or select suggestion below"
+							m.TextInput.Placeholder = m.DefaultPlaceholder
 						}
 					}
 				} else if m.SelectedIssue == nil && len(m.LinearIssues) > 0 {
@@ -370,7 +385,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.SelectedIssue = nil
 									m.InputMode = true
 									m.TextInput.Focus()
-									m.TextInput.Placeholder = "enter branch name or select suggestion below"
+									m.TextInput.Placeholder = m.DefaultPlaceholder
 								}
 							}
 						}

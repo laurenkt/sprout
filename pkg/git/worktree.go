@@ -166,6 +166,15 @@ func getRepositoryRoot() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+func GetRepositoryName() (string, error) {
+	repoRoot, err := getRepositoryRoot()
+	if err != nil {
+		return "", err
+	}
+	
+	return filepath.Base(repoRoot), nil
+}
+
 type Worktree struct {
 	Path     string
 	Branch   string
