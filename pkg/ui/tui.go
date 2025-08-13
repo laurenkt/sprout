@@ -36,9 +36,10 @@ type model struct {
 	LinearError      string
 	SelectedIssue    *linear.Issue  // nil for custom input mode
 	InputMode        bool           // true when in custom input mode, false when selecting tickets
-	CreatingSubtask  bool   // true while creating subtask
-	SubtaskInputMode bool   // true when editing subtask inline
-	SubtaskParentID  string // ID of parent issue when creating subtask
+	CreatingSubtask    bool   // true while creating subtask
+	SubtaskInputMode   bool   // true when editing subtask inline
+	SubtaskParentID    string // ID of parent issue when creating subtask
+	AddSubtaskSelected string // ID of parent issue whose "Add subtask" is selected
 }
 
 var (
@@ -183,9 +184,10 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		LinearError:      "",
 		SelectedIssue:    nil, // Start with custom input selected
 		InputMode:        true,
-		CreatingSubtask:  false,
-		SubtaskInputMode: false,
-		SubtaskParentID:  "",
+		CreatingSubtask:    false,
+		SubtaskInputMode:   false,
+		SubtaskParentID:    "",
+		AddSubtaskSelected: "",
 	}, nil
 }
 
@@ -225,6 +227,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check if we're in subtask input mode and exit that
 			if m.SubtaskInputMode {
 				m.SubtaskInputMode = false
+				m.setSubtaskEntryMode(m.SubtaskParentID, false)
 				m.SubtaskParentID = ""
 				m.SubtaskInput.SetValue("")
 				m.SubtaskInput.Blur()
@@ -252,6 +255,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Regular worktree creation logic
 				var branchName string
 				if m.SelectedIssue == nil {
+					// Check if we're on "Add subtask" selection (which shouldn't create worktree)
+					if m.AddSubtaskSelected != "" {
+						return m, nil
+					}
 					// Using custom input
 					if strings.TrimSpace(m.TextInput.Value()) == "" {
 						return m, nil // Don't submit empty input
@@ -259,10 +266,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					branchName = strings.TrimSpace(m.TextInput.Value())
 				} else {
 					// Using selected Linear ticket
-					// Don't create worktree for "Add subtask" placeholders that aren't being edited
-					if m.SelectedIssue.IsAddSubtask {
-						return m, nil
-					}
 					branchName = m.SelectedIssue.GetBranchName()
 				}
 
@@ -274,25 +277,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyUp:
 			if !m.Submitted {
-				if m.SelectedIssue == nil {
+				if m.SelectedIssue == nil && m.AddSubtaskSelected == "" {
 					// Currently in custom input mode, try to go to last visible issue
 					if len(m.LinearIssues) > 0 {
 						m.SelectedIssue = m.getLastVisibleIssue()
 						m.InputMode = false
 						m.TextInput.Blur()
-						// Update placeholder with selected issue's branch name
-						if !m.SelectedIssue.IsAddSubtask {
-							m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
-						}
+						m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
 					}
-				} else {
+				} else if m.AddSubtaskSelected != "" {
+					// From "Add subtask" selection, go to parent issue
+					if parent := m.findIssueByID(m.AddSubtaskSelected); parent != nil {
+						m.SelectedIssue = parent
+						m.AddSubtaskSelected = ""
+						m.TextInput.Placeholder = parent.GetBranchName()
+					}
+				} else if m.SelectedIssue != nil {
 					// Try to go to previous issue
 					if prevIssue := m.SelectedIssue.PrevVisible(m.LinearIssues); prevIssue != nil {
 						m.SelectedIssue = prevIssue
-						// Update placeholder with selected issue's branch name
-						if !m.SelectedIssue.IsAddSubtask {
-							m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
-						}
+						m.TextInput.Placeholder = prevIssue.GetBranchName()
 					} else {
 						// Go back to custom input mode
 						m.SelectedIssue = nil
@@ -306,49 +310,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyDown:
 			if !m.Submitted {
-				if m.SelectedIssue == nil && len(m.LinearIssues) > 0 {
+				if m.AddSubtaskSelected != "" {
+					// From "Add subtask" selection, go to next sibling of parent
+					parent := m.findIssueByID(m.AddSubtaskSelected)
+					if parent != nil {
+						if nextSib := parent.NextSibling(m.LinearIssues); nextSib != nil {
+							m.SelectedIssue = nextSib
+							m.AddSubtaskSelected = ""
+							m.TextInput.Placeholder = nextSib.GetBranchName()
+							// DEBUG: This should print when navigating from Add subtask to next sibling
+							fmt.Printf("DEBUG: Navigated from AddSubtask to %s\n", nextSib.Identifier)
+						} else {
+							// No next sibling, wrap to custom input
+							m.SelectedIssue = nil
+							m.AddSubtaskSelected = ""
+							m.InputMode = true
+							m.TextInput.Focus()
+							m.TextInput.Placeholder = "enter branch name or select suggestion below"
+						}
+					}
+				} else if m.SelectedIssue == nil && len(m.LinearIssues) > 0 {
 					// Move from custom input to first visible issue
 					m.SelectedIssue = m.getFirstVisibleIssue()
 					m.InputMode = false
 					m.TextInput.Blur()
-					// Update placeholder with selected issue's branch name
-					if !m.SelectedIssue.IsAddSubtask {
-						m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
-					}
+					m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
 				} else if m.SelectedIssue != nil {
 					// Handle down navigation based on current selection
-					if m.SelectedIssue.IsAddSubtask {
-						// From "Add subtask" placeholder, go to next sibling of parent
-						parent := m.findIssueByID(m.SelectedIssue.SubtaskParentID)
-						if parent != nil {
-							if nextSib := parent.NextSibling(m.LinearIssues); nextSib != nil {
-								m.SelectedIssue = nextSib
-								m.TextInput.Placeholder = nextSib.GetBranchName()
-							} else {
-								// No next sibling, wrap to custom input
-								m.SelectedIssue = nil
-								m.InputMode = true
-								m.TextInput.Focus()
-								m.TextInput.Placeholder = "enter branch name or select suggestion below"
-							}
-						}
-					} else if m.SelectedIssue.Expanded && len(m.SelectedIssue.Children) > 0 {
+					if m.SelectedIssue.Expanded && len(m.SelectedIssue.Children) > 0 {
 						// From expanded issue with children, go to first child
 						m.SelectedIssue = &m.SelectedIssue.Children[0]
 						m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
-					} else if m.SelectedIssue.Expanded && len(m.SelectedIssue.Children) == 0 {
-						// From expanded issue with no children, go to "Add subtask" placeholder
-						m.SelectedIssue = m.createAddSubtaskPlaceholder(m.SelectedIssue.ID)
+					} else if m.SelectedIssue.Expanded {
+						// From expanded issue with no children, go to "Add subtask" selection
+						m.AddSubtaskSelected = m.SelectedIssue.ID
+						m.SelectedIssue = nil
 					} else {
 						// From non-expanded issue, go to next sibling or up the tree
 						if nextSib := m.SelectedIssue.NextSibling(m.LinearIssues); nextSib != nil {
 							m.SelectedIssue = nextSib
 							m.TextInput.Placeholder = nextSib.GetBranchName()
 						} else {
-							// No next sibling, check if parent is expanded and we haven't shown "Add subtask" yet
+							// No next sibling, check if parent is expanded
 							if m.SelectedIssue.Parent != nil && m.SelectedIssue.Parent.Expanded {
-								// Go to "Add subtask" placeholder for the parent
-								m.SelectedIssue = m.createAddSubtaskPlaceholder(m.SelectedIssue.Parent.ID)
+								// Go to "Add subtask" selection for the parent
+								m.AddSubtaskSelected = m.SelectedIssue.Parent.ID
+								m.SelectedIssue = nil
 							} else {
 								// Go up and try parent's next sibling
 								current := m.SelectedIssue.Parent
@@ -375,14 +382,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyRight:
-			if !m.InputMode && !m.Submitted && m.SelectedIssue != nil {
-				if m.SelectedIssue.IsAddSubtask {
+			if !m.InputMode && !m.Submitted {
+				if m.AddSubtaskSelected != "" {
 					// Start subtask input mode
 					m.SubtaskInputMode = true
-					m.SubtaskParentID = m.SelectedIssue.SubtaskParentID
+					m.SubtaskParentID = m.AddSubtaskSelected
+					m.setSubtaskEntryMode(m.AddSubtaskSelected, true)
 					m.SubtaskInput.SetValue("")
 					m.SubtaskInput.Focus()
-				} else {
+				} else if m.SelectedIssue != nil {
 					// Always expand - either to show children or the "add subtask" option
 					if !m.SelectedIssue.Expanded {
 						if m.SelectedIssue.HasChildren && len(m.SelectedIssue.Children) == 0 {
@@ -399,15 +407,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyLeft:
-			if !m.InputMode && !m.Submitted && m.SelectedIssue != nil {
-				if m.SelectedIssue.IsAddSubtask {
-					// For add subtask items, collapse their parent instead and select it
-					m.updateIssueExpansion(m.SelectedIssue.SubtaskParentID, false)
+			if !m.InputMode && !m.Submitted {
+				if m.AddSubtaskSelected != "" {
+					// For add subtask selection, collapse the parent and select it
+					m.updateIssueExpansion(m.AddSubtaskSelected, false)
 					// Find and select the parent
-					if parent := m.findIssueByID(m.SelectedIssue.SubtaskParentID); parent != nil {
+					if parent := m.findIssueByID(m.AddSubtaskSelected); parent != nil {
 						m.SelectedIssue = parent
+						m.AddSubtaskSelected = ""
 					}
-				} else if m.SelectedIssue.Expanded {
+				} else if m.SelectedIssue != nil && m.SelectedIssue.Expanded {
 					// Always collapse when left arrow is pressed on an expanded issue
 					m.updateIssueExpansion(m.SelectedIssue.ID, false)
 				}
@@ -436,7 +445,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.LinearIssues = msg.issues
 		m.LinearError = ""
 		// Update placeholder if a Linear ticket is currently selected
-		if m.SelectedIssue != nil && !m.SelectedIssue.IsAddSubtask {
+		if m.SelectedIssue != nil {
 			m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
 		}
 
@@ -447,7 +456,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case childrenLoadedMsg:
 		m.setIssueChildren(msg.parentID, msg.children)
 		// Update placeholder if a Linear ticket is currently selected
-		if m.SelectedIssue != nil && !m.SelectedIssue.IsAddSubtask {
+		if m.SelectedIssue != nil {
 			m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
 		}
 
@@ -461,7 +470,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.SubtaskInput.SetValue("")
 		m.SubtaskInput.Blur()
 		m.SubtaskInputMode = false
+		m.setSubtaskEntryMode(m.SubtaskParentID, false)
 		m.SubtaskParentID = ""
+		m.AddSubtaskSelected = ""
 
 		// Add the newly created subtask to the parent's children and expand
 		m.addSubtaskToParent(msg.parentID, msg.subtask)
@@ -535,21 +546,24 @@ func (m *model) findIssueByID(id string) *linear.Issue {
 	return find(m.LinearIssues)
 }
 
-// createAddSubtaskPlaceholder creates a placeholder for adding subtasks
-func (m *model) createAddSubtaskPlaceholder(parentID string) *linear.Issue {
-	parent := m.findIssueByID(parentID)
-	if parent == nil {
-		return nil
+// setSubtaskEntryMode sets the subtask entry mode for an issue
+func (m *model) setSubtaskEntryMode(issueID string, enabled bool) {
+	var update func(issues *[]linear.Issue)
+	update = func(issues *[]linear.Issue) {
+		for i := range *issues {
+			if (*issues)[i].ID == issueID {
+				(*issues)[i].ShowingSubtaskEntry = enabled
+				if enabled {
+					(*issues)[i].SubtaskEntryText = ""
+				}
+				return
+			}
+			if len((*issues)[i].Children) > 0 {
+				update(&(*issues)[i].Children)
+			}
+		}
 	}
-	return &linear.Issue{
-		ID:              "",
-		Title:           "+ Add subtask",
-		Identifier:      "",
-		IsAddSubtask:    true,
-		SubtaskParentID: parentID,
-		Depth:           parent.Depth + 1,
-		Parent:          parent,
-	}
+	update(&m.LinearIssues)
 }
 
 func (m model) createWorktree() tea.Cmd {
@@ -743,61 +757,6 @@ func (m model) View() string {
 	return s.String()
 }
 
-func (m model) renderTreeLine(identifier, title string, maxLen int, isTree, isAddSubtask bool) string {
-	var styledIdentifier string
-	if isAddSubtask {
-		styledIdentifier = addSubtaskStyle.Render(identifier)
-	} else if isTree {
-		styledIdentifier = identifierStyle.Render(identifier)
-	} else {
-		styledIdentifier = identifierStyle.Render(identifier)
-	}
-
-	paddedIdentifier := fmt.Sprintf("%-*s", maxLen+10, styledIdentifier) // Extra padding for color codes
-	return fmt.Sprintf(" %s  %s", paddedIdentifier, title)
-}
-
-func (m model) renderIssueTreeLine(issue linear.Issue, index int, maxLen int) string {
-	var displayTitle string
-
-	// Handle inline editing for add subtask placeholders
-	if issue.IsAddSubtask && issue.EditingTitle {
-		displayTitle = ""
-		for j, r := range issue.TitleInput {
-			if j == issue.TitleCursor {
-				displayTitle += cursorStyle.Render("│")
-			}
-			displayTitle += titleStyle.Render(string(r))
-		}
-		if issue.TitleCursor == len(issue.TitleInput) {
-			displayTitle += cursorStyle.Render("│")
-		}
-	} else {
-		title := issue.Title
-		if len(title) > 50 {
-			title = title[:47] + "..."
-		}
-		if issue.IsAddSubtask {
-			displayTitle = addSubtaskStyle.Render(title)
-		} else {
-			displayTitle = titleStyle.Render(title)
-		}
-	}
-
-	// Create tree structure
-	treePrefix := strings.Repeat("  ", issue.Depth)
-	expandIndicator := getTreeIndicator(issue)
-	styledIndicator := expandedStyle.Render(expandIndicator)
-
-	identifier := issue.Identifier
-	if issue.IsAddSubtask {
-		identifier = ""
-	}
-
-	identifierWithTree := treePrefix + styledIndicator + identifierStyle.Render(identifier)
-
-	return m.renderTreeLine(identifierWithTree, displayTitle, maxLen, true, issue.IsAddSubtask)
-}
 
 func (m model) buildSimpleLinearTree() string {
 	if len(m.LinearIssues) == 0 {
@@ -829,7 +788,7 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	content := fmt.Sprintf("%s  %s", identifier, titleText)
 
 	// Apply selection styling if this is the selected item
-	if m.SelectedIssue != nil && m.SelectedIssue.ID == issue.ID && !m.SelectedIssue.IsAddSubtask {
+	if m.SelectedIssue != nil && m.SelectedIssue.ID == issue.ID {
 		content = selectedStyle.Render(content)
 	} else {
 		content = normalStyle.Render(content)
@@ -847,16 +806,22 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 			m.addIssueNode(issueNode, child)
 		}
 
-		// Add "Add subtask" placeholder
+		// Add "Add subtask" entry - either input field or placeholder
 		var addSubtaskContent string
-		if m.SubtaskInputMode && m.SubtaskParentID == issue.ID {
-			addSubtaskContent = m.SubtaskInput.View()
+		if issue.ShowingSubtaskEntry {
+			// Show the input field inline
+			if m.SubtaskInputMode && m.SubtaskParentID == issue.ID {
+				addSubtaskContent = m.SubtaskInput.View()
+			} else {
+				// Show the text being entered (not currently in input mode)
+				addSubtaskContent = addSubtaskStyle.Render("+ " + issue.SubtaskEntryText)
+			}
 		} else {
 			addSubtaskContent = addSubtaskStyle.Render("+ Add subtask")
 		}
 
 		// Apply selection styling if this is the selected "Add subtask" item
-		if m.SelectedIssue != nil && m.SelectedIssue.IsAddSubtask && m.SelectedIssue.SubtaskParentID == issue.ID {
+		if m.AddSubtaskSelected == issue.ID {
 			addSubtaskContent = selectedStyle.Render(addSubtaskContent)
 		} else {
 			addSubtaskContent = normalStyle.Render(addSubtaskContent)
@@ -872,26 +837,6 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	}
 }
 
-func (m model) renderSubtaskInput(parentID string) string {
-	if m.SubtaskInputMode && m.SubtaskParentID == parentID {
-		return m.SubtaskInput.View()
-	}
-	return addSubtaskStyle.Render("+ Add subtask")
-}
-
-func getTreeIndicator(issue linear.Issue) string {
-	if issue.IsAddSubtask {
-		return "├─ "
-	} else if issue.HasChildren {
-		if issue.Expanded {
-			return "▼ "
-		} else {
-			return "▶ "
-		}
-	} else {
-		return "   "
-	}
-}
 
 func RunInteractive() error {
 	m, err := NewTUI()

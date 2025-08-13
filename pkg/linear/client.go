@@ -33,11 +33,13 @@ type Issue struct {
 	Depth       int       `json:"depth"`
 	
 	// UI state for inline subtask creation
-	IsAddSubtask     bool   `json:"-"`        // true if this is an "add subtask" placeholder
-	SubtaskParentID  string `json:"-"`        // ID of parent for new subtask
-	EditingTitle     bool   `json:"-"`        // true when editing this item's title
-	TitleInput       string `json:"-"`        // input buffer for title editing
-	TitleCursor      int    `json:"-"`        // cursor position in title input
+	IsAddSubtask        bool   `json:"-"`        // true if this is an "add subtask" placeholder
+	SubtaskParentID     string `json:"-"`        // ID of parent for new subtask
+	EditingTitle        bool   `json:"-"`        // true when editing this item's title
+	TitleInput          string `json:"-"`        // input buffer for title editing
+	TitleCursor         int    `json:"-"`        // cursor position in title input
+	ShowingSubtaskEntry bool   `json:"-"`        // true when showing inline subtask entry for this issue
+	SubtaskEntryText    string `json:"-"`        // text being entered for new subtask
 }
 
 // State represents the state of an issue
@@ -244,6 +246,7 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 		issues[i].HasChildren = len(node.Children.Nodes) > 0
 		issues[i].Depth = 0
 		issues[i].Expanded = false
+		issues[i].Parent = nil // Explicitly set parent to nil for root issues
 	}
 
 	return issues, nil
@@ -554,6 +557,7 @@ func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
 			issue.HasChildren = hasChildren
 			issue.Depth = 0
 			issue.Expanded = false
+			issue.Parent = nil // Explicitly set parent to nil for root issues
 			issues = append(issues, issue)
 		}
 	}
