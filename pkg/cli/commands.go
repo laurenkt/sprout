@@ -15,13 +15,36 @@ import (
 	"sprout/pkg/ui"
 )
 
+// ConfigPathProvider provides config path and file status information
+type ConfigPathProvider interface {
+	GetConfigPath() (string, error)
+	ConfigFileExists() bool
+}
+
+// DefaultConfigPathProvider provides real config path and file status
+type DefaultConfigPathProvider struct{}
+
+func (p *DefaultConfigPathProvider) GetConfigPath() (string, error) {
+	return getConfigPath()
+}
+
+func (p *DefaultConfigPathProvider) ConfigFileExists() bool {
+	path, err := getConfigPath()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
 // Dependencies represents the external dependencies for CLI commands
 type Dependencies struct {
-	WorktreeManager git.WorktreeManagerInterface
-	ConfigLoader    config.LoaderInterface
-	LinearClient    linear.LinearClientInterface
-	Output          io.Writer
-	ErrorOutput     io.Writer
+	WorktreeManager    git.WorktreeManagerInterface
+	ConfigLoader       config.LoaderInterface
+	LinearClient       linear.LinearClientInterface
+	ConfigPathProvider ConfigPathProvider
+	Output             io.Writer
+	ErrorOutput        io.Writer
 }
 
 // NewDependencies creates production dependencies
@@ -42,11 +65,12 @@ func NewDependencies() (*Dependencies, error) {
 	}
 
 	return &Dependencies{
-		WorktreeManager: wm,
-		ConfigLoader:    &config.DefaultLoader{Config: cfg},
-		LinearClient:    linearClient,
-		Output:          os.Stdout,
-		ErrorOutput:     os.Stderr,
+		WorktreeManager:    wm,
+		ConfigLoader:       &config.DefaultLoader{Config: cfg},
+		LinearClient:       linearClient,
+		ConfigPathProvider: &DefaultConfigPathProvider{},
+		Output:             os.Stdout,
+		ErrorOutput:        os.Stderr,
 	}, nil
 }
 
@@ -144,16 +168,16 @@ func HandleDoctorCommand(deps *Dependencies) error {
 		fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Linear API Key"), warningStyle.Render("not configured"))
 	}
 
-	configPath, err := getConfigPath()
+	configPath, err := deps.ConfigPathProvider.GetConfigPath()
 	if err != nil {
 		fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Config Path"), warningStyle.Render(fmt.Sprintf("<error: %v>", err)))
 	} else {
 		fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Config Path"), normalStyle.Render(configPath))
 
-		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Config File"), warningStyle.Render("not found (using defaults)"))
-		} else {
+		if deps.ConfigPathProvider.ConfigFileExists() {
 			fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Config File"), normalStyle.Render("exists"))
+		} else {
+			fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Config File"), warningStyle.Render("not found (using defaults)"))
 		}
 	}
 

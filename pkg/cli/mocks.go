@@ -69,3 +69,21 @@ func (m *MockLinearClient) CreateSubtask(parentID, title string) (*linear.Issue,
 func (m *MockLinearClient) TestConnection() error {
 	return m.ConnectionError
 }
+
+// MockConfigPathProvider provides configurable config path and file status for testing
+type MockConfigPathProvider struct {
+	ConfigPath   string
+	FileExists   bool
+	PathError    error
+}
+
+func (p *MockConfigPathProvider) GetConfigPath() (string, error) {
+	if p.PathError != nil {
+		return "", p.PathError
+	}
+	return p.ConfigPath, nil
+}
+
+func (p *MockConfigPathProvider) ConfigFileExists() bool {
+	return p.FileExists
+}

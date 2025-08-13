@@ -39,11 +39,15 @@ func NewCLITestContext(t *testing.T) *CLITestContext {
 		originalStdout: os.Stdout,
 		originalStderr: os.Stderr,
 		deps: &Dependencies{
-			WorktreeManager: &MockWorktreeManager{Worktrees: []git.Worktree{}},
-			ConfigLoader:    &MockConfigLoader{Config: &config.Config{}},
-			LinearClient:    nil,
-			Output:          outputBuffer,
-			ErrorOutput:     errorBuffer,
+			WorktreeManager:    &MockWorktreeManager{Worktrees: []git.Worktree{}},
+			ConfigLoader:       &MockConfigLoader{Config: &config.Config{}},
+			LinearClient:       nil,
+			ConfigPathProvider: &MockConfigPathProvider{
+				ConfigPath: "/Users/laurenkt/.sprout.json5",
+				FileExists: true,
+			},
+			Output:      outputBuffer,
+			ErrorOutput: errorBuffer,
 		},
 	}
 }
