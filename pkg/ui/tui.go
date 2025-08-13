@@ -318,8 +318,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.SelectedIssue = nextSib
 							m.AddSubtaskSelected = ""
 							m.TextInput.Placeholder = nextSib.GetBranchName()
-							// DEBUG: This should print when navigating from Add subtask to next sibling
-							fmt.Printf("DEBUG: Navigated from AddSubtask to %s\n", nextSib.Identifier)
 						} else {
 							// No next sibling, wrap to custom input
 							m.SelectedIssue = nil
