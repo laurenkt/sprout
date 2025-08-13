@@ -29,7 +29,7 @@ Feature: Sprout TUI Tree Expansion
       """
       🌱 sprout
 
-      > spr-100-feature-a-user-management-system
+      > sprout/spr-100-feature-a-user-management-system
       ├──SPR-100  Feature A: User management system
       ├──SPR-200  Feature B: Dashboard and analytics
       └──SPR-300  Bug fix: Payment processing errors
@@ -39,7 +39,7 @@ Feature: Sprout TUI Tree Expansion
       """
       🌱 sprout
 
-      > spr-100-feature-a-user-management-system
+      > sprout/spr-100-feature-a-user-management-system
       ├──SPR-100  Feature A: User management system
       │  ├──SPR-101  Add user registration
       │  ├──SPR-102  Implement user authentication
@@ -55,7 +55,7 @@ Feature: Sprout TUI Tree Expansion
       """
       🌱 sprout
 
-      > spr-200-feature-b-dashboard-and-analytics
+      > sprout/spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  Feature A: User management system
       │  ├──SPR-101  Add user registration
       │  ├──SPR-102  Implement user authentication
@@ -68,7 +68,7 @@ Feature: Sprout TUI Tree Expansion
       """
       🌱 sprout
 
-      > spr-200-feature-b-dashboard-and-analytics
+      > sprout/spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  Feature A: User management system
       │  ├──SPR-101  Add user registration
       │  ├──SPR-102  Implement user authentication

@@ -141,10 +141,13 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		repoName = ""
 	}
 
+	var prompt string
 	var placeholder string
 	if repoName != "" {
-		placeholder = repoName + "/enter branch name or select suggestion below"
+		prompt = "> " + repoName + "/"
+		placeholder = "enter branch name or select suggestion below"
 	} else {
+		prompt = "> "
 		placeholder = "enter branch name or select suggestion below"
 	}
 
@@ -154,7 +157,7 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 	ti.Focus()
 	ti.CharLimit = 156
 	ti.Width = 80
-	ti.Prompt = "> "
+	ti.Prompt = prompt
 
 	// Style the text input
 	ti.PromptStyle = selectedStyle // Use selected style when focused
@@ -202,7 +205,7 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		SubtaskInputMode:   false,
 		SubtaskParentID:    "",
 		AddSubtaskSelected: "",
-		DefaultPlaceholder: placeholder,
+		DefaultPlaceholder: "enter branch name or select suggestion below",
 	}, nil
 }
 
