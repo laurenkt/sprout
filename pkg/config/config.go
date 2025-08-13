@@ -17,6 +17,20 @@ type Config struct {
 	SparseCheckout  map[string][]string `json:"sparseCheckout,omitempty"`
 }
 
+// LoaderInterface defines the interface for config loading
+type LoaderInterface interface {
+	GetConfig() (*Config, error)
+}
+
+// DefaultLoader implements LoaderInterface
+type DefaultLoader struct {
+	Config *Config
+}
+
+func (dl *DefaultLoader) GetConfig() (*Config, error) {
+	return dl.Config, nil
+}
+
 func DefaultConfig() *Config {
 	return &Config{
 		DefaultCommand: "",
