@@ -166,6 +166,55 @@ func getRepositoryRoot() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+func GetRepositoryName() (string, error) {
+	// Try to get repo name from remote URL first (works in worktrees)
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	output, err := cmd.Output()
+	if err == nil {
+		remoteURL := strings.TrimSpace(string(output))
+		// Extract repo name from URL like "https://github.com/user/repo.git" or "git@github.com:user/repo.git"
+		if repoName := extractRepoNameFromURL(remoteURL); repoName != "" {
+			return repoName, nil
+		}
+	}
+	
+	// Fallback to directory name method
+	repoRoot, err := getRepositoryRoot()
+	if err != nil {
+		return "", err
+	}
+	
+	return filepath.Base(repoRoot), nil
+}
+
+func extractRepoNameFromURL(url string) string {
+	// Handle different URL formats
+	if strings.HasPrefix(url, "https://") {
+		// https://github.com/user/repo.git -> repo
+		parts := strings.Split(url, "/")
+		if len(parts) > 0 {
+			repoWithExt := parts[len(parts)-1]
+			return strings.TrimSuffix(repoWithExt, ".git")
+		}
+	} else if strings.HasPrefix(url, "git@") {
+		// git@github.com:user/repo.git -> repo
+		if idx := strings.LastIndex(url, "/"); idx != -1 {
+			repoWithExt := url[idx+1:]
+			return strings.TrimSuffix(repoWithExt, ".git")
+		} else if idx := strings.LastIndex(url, ":"); idx != -1 {
+			pathPart := url[idx+1:]
+			if slashIdx := strings.LastIndex(pathPart, "/"); slashIdx != -1 {
+				repoWithExt := pathPart[slashIdx+1:]
+				return strings.TrimSuffix(repoWithExt, ".git")
+			} else {
+				return strings.TrimSuffix(pathPart, ".git")
+			}
+		}
+	}
+	
+	return ""
+}
+
 type Worktree struct {
 	Path     string
 	Branch   string

@@ -18,7 +18,7 @@ Feature: Sprout TUI Navigation
       """
       🌱 sprout
 
-      > enter branch name or select suggestion below
+      > sprout/enter branch name or select suggestion below
       ├──SPR-123  Add user authentication
       ├──SPR-124  Implement dashboard with analytics and reporting
       └──SPR-127  Fix critical bug in payment processing
@@ -31,7 +31,7 @@ Feature: Sprout TUI Navigation
       """
       🌱 sprout
 
-      > spr-123-add-user-authentication
+      > sprout/spr-123-add-user-authentication
       ├──SPR-123  Add user authentication
       ├──SPR-124  Implement dashboard with analytics and reporting
       └──SPR-127  Fix critical bug in payment processing
@@ -45,7 +45,7 @@ Feature: Sprout TUI Navigation
       """
       🌱 sprout
 
-      > enter branch name or select suggestion below
+      > sprout/enter branch name or select suggestion below
       ├──SPR-123  Add user authentication
       ├──SPR-124  Implement dashboard with analytics and reporting
       └──SPR-127  Fix critical bug in payment processing
