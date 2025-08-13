@@ -19,7 +19,7 @@ Feature: Sprout TUI Tree Expansion
       """
       🌱 sprout
 
-      > show-repo-name-at-front-of-prompt/enter branch name or select suggestion below
+      > sprout/enter branch name or select suggestion below
       ├──SPR-100  Feature A: User management system
       ├──SPR-200  Feature B: Dashboard and analytics
       └──SPR-300  Bug fix: Payment processing errors
