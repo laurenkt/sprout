@@ -5,7 +5,7 @@ Feature: Sprout CLI Commands
 
   Scenario: Display help information
     When I run "sprout help"
-    Then the output should contain:
+    Then the output should be:
       """
       Sprout - Git Worktree Terminal UI
 
@@ -17,13 +17,40 @@ Feature: Sprout CLI Commands
         sprout prune [branch]               Remove worktree(s) - all merged if no branch specified
         sprout doctor                       Show configuration values
         sprout help                         Show this help
+
+      Examples:
+        sprout list                          # Show all worktrees
+        cd "$(sprout create mybranch)"       # Change to worktree directory
+        sprout create mybranch bash          # Create worktree and start bash
+        sprout create mybranch code .        # Create worktree and open in VS Code
+        sprout create mybranch git status    # Create worktree and run git status
+        sprout prune                         # Remove all merged worktrees
+        sprout prune mybranch                # Remove specific worktree and directory
       """
 
   Scenario: Show help with --help flag
     When I run "sprout --help"
-    Then the output should contain:
+    Then the output should be:
       """
       Sprout - Git Worktree Terminal UI
+
+      Usage:
+        sprout                              Start in interactive mode
+        sprout list                         List all worktrees
+        sprout create <branch>              Create worktree and output path
+        sprout create <branch> <command>    Create worktree and run command in it
+        sprout prune [branch]               Remove worktree(s) - all merged if no branch specified
+        sprout doctor                       Show configuration values
+        sprout help                         Show this help
+
+      Examples:
+        sprout list                          # Show all worktrees
+        cd "$(sprout create mybranch)"       # Change to worktree directory
+        sprout create mybranch bash          # Create worktree and start bash
+        sprout create mybranch code .        # Create worktree and open in VS Code
+        sprout create mybranch git status    # Create worktree and run git status
+        sprout prune                         # Remove all merged worktrees
+        sprout prune mybranch                # Remove specific worktree and directory
       """
 
   Scenario: List worktrees when none exist
@@ -40,14 +67,17 @@ Feature: Sprout CLI Commands
       | feature-123 | abc12345 | Open      |
       | bugfix-456  | def67890 | Merged    |
     When I run "sprout list"
-    Then the output should contain:
+    Then the output should be:
       """
       🌱 Active Worktrees
+
+      ┌───────────┬─────────┬────────┐
+      │BRANCH     │PR STATUS│COMMIT  │
+      ├───────────┼─────────┼────────┤
+      │feature-123│Open     │abc12345│
+      │bugfix-456 │Merged   │def67890│
+      └───────────┴─────────┴────────┘
       """
-    And the output should contain a table with:
-      | BRANCH      | PR STATUS | COMMIT   |
-      | feature-123 | Open      | abc12345 |
-      | bugfix-456  | Merged    | def67890 |
 
   Scenario: Doctor command shows configuration
     Given a config with:
@@ -55,15 +85,15 @@ Feature: Sprout CLI Commands
       | default_command | code .       |
       | linear_api_key  | <not_set>    |
     When I run "sprout doctor"
-    Then the output should contain:
+    Then the output should be:
       """
       🌱 Sprout Configuration
 
         Default Command: code .
         Linear API Key: not configured
-      """
-    And the output should contain:
-      """
+        Config Path: /Users/laurenkt/.sprout.json5
+        Config File: exists
+
       Linear Integration
 
         API Key: not configured
@@ -76,28 +106,46 @@ Feature: Sprout CLI Commands
       | default_command | code .                     |
       | linear_api_key  | lin_api_test123456789abc   |
     When I run "sprout doctor"
-    Then the output should contain:
+    Then the output should be:
       """
       🌱 Sprout Configuration
 
         Default Command: code .
         Linear API Key: configured
-      """
-    And the output should contain:
-      """
+        Config Path: /Users/laurenkt/.sprout.json5
+        Config File: exists
+
       Linear Integration
 
         API Key: lin_api_...9abc
+        Status: ✓ Connected
+        User: Test User (test@example.com)
+        Assigned Issues: 0 active tickets
       """
 
   Scenario: Unknown command shows error and help
     When I run "sprout unknown"
     Then the command should fail
-    And the output should contain:
-      """
-      Unknown command: unknown
-      """
-    And the output should contain:
+    And the output should be:
       """
       Sprout - Git Worktree Terminal UI
+
+      Usage:
+        sprout                              Start in interactive mode
+        sprout list                         List all worktrees
+        sprout create <branch>              Create worktree and output path
+        sprout create <branch> <command>    Create worktree and run command in it
+        sprout prune [branch]               Remove worktree(s) - all merged if no branch specified
+        sprout doctor                       Show configuration values
+        sprout help                         Show this help
+
+      Examples:
+        sprout list                          # Show all worktrees
+        cd "$(sprout create mybranch)"       # Change to worktree directory
+        sprout create mybranch bash          # Create worktree and start bash
+        sprout create mybranch code .        # Create worktree and open in VS Code
+        sprout create mybranch git status    # Create worktree and run git status
+        sprout prune                         # Remove all merged worktrees
+        sprout prune mybranch                # Remove specific worktree and directory
+      Unknown command: unknown
       """

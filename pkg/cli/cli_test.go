@@ -136,40 +136,12 @@ func (tc *CLITestContext) aConfigWith(configTable *godog.Table) error {
 	return nil
 }
 
-func (tc *CLITestContext) theOutputShouldContain(expected *godog.DocString) error {
-	expectedContent := strings.TrimSpace(expected.Content)
-	actualContent := strings.TrimSpace(tc.lastOutput)
-	
-	if !strings.Contains(actualContent, expectedContent) {
-		return fmt.Errorf("output does not contain expected content:\nExpected to contain:\n%s\n\nActual output:\n%s", expectedContent, actualContent)
-	}
-	
-	return nil
-}
-
 func (tc *CLITestContext) theOutputShouldBe(expected *godog.DocString) error {
 	expectedContent := strings.TrimSpace(expected.Content)
 	actualContent := strings.TrimSpace(tc.lastOutput)
 	
 	if actualContent != expectedContent {
 		return fmt.Errorf("output mismatch:\nExpected:\n%s\n\nActual:\n%s", expectedContent, actualContent)
-	}
-	
-	return nil
-}
-
-func (tc *CLITestContext) theOutputShouldContainATableWith(table *godog.Table) error {
-	// For simplicity, just check that the table content is present
-	for i, row := range table.Rows {
-		if i == 0 { // Skip header for content check
-			continue
-		}
-		
-		for _, cell := range row.Cells {
-			if !strings.Contains(tc.lastOutput, cell.Value) {
-				return fmt.Errorf("output does not contain table cell value: %s", cell.Value)
-			}
-		}
 	}
 	
 	return nil
@@ -206,14 +178,8 @@ func InitializeCLIScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Step(`^a config with:$`, func(table *godog.Table) error {
 		return tc.aConfigWith(table)
 	})
-	ctx.Step(`^the output should contain:$`, func(expected *godog.DocString) error {
-		return tc.theOutputShouldContain(expected)
-	})
 	ctx.Step(`^the output should be:$`, func(expected *godog.DocString) error {
 		return tc.theOutputShouldBe(expected)
-	})
-	ctx.Step(`^the output should contain a table with:$`, func(table *godog.Table) error {
-		return tc.theOutputShouldContainATableWith(table)
 	})
 	ctx.Step(`^the command should fail$`, func() error {
 		return tc.theCommandShouldFail()
