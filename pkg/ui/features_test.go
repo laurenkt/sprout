@@ -16,17 +16,21 @@ import (
 
 // TUITestContext holds the state for our Gherkin tests
 type TUITestContext struct {
-	model       model
-	testModel   *teatest.TestModel
-	fakeClient  *linear.FakeLinearClient
-	t           *testing.T
+	model          model
+	testModel      *teatest.TestModel
+	fakeClient     *linear.FakeLinearClient
+	t              *testing.T
+	terminalWidth  int
+	terminalHeight int
 }
 
 // NewTUITestContext creates a new test context
 func NewTUITestContext(t *testing.T) *TUITestContext {
 	return &TUITestContext{
-		fakeClient: linear.NewFakeLinearClient(),
-		t:          t,
+		fakeClient:     linear.NewFakeLinearClient(),
+		t:              t,
+		terminalWidth:  80,  // Default width
+		terminalHeight: 24,  // Default height
 	}
 }
 
@@ -121,7 +125,12 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 	tc.executeInitialization()
 	
 	if tc.t != nil {
-		tc.testModel = teatest.NewTestModel(tc.t, tc.model, teatest.WithInitialTermSize(80, 24))
+		tc.testModel = teatest.NewTestModel(tc.t, tc.model, teatest.WithInitialTermSize(tc.terminalWidth, tc.terminalHeight))
+		
+		// Send window size message to the model to set up responsive layout
+		windowSizeMsg := tea.WindowSizeMsg{Width: tc.terminalWidth, Height: tc.terminalHeight}
+		updatedModel, _ := tc.model.Update(windowSizeMsg)
+		tc.model = updatedModel.(model)
 	}
 	
 	return nil
@@ -274,6 +283,40 @@ func trimEmptyLines(lines []string) []string {
 	return lines[start:end]
 }
 
+func (tc *TUITestContext) myTerminalWidthIsCharacters(width int) error {
+	tc.terminalWidth = width
+	return nil
+}
+
+func (tc *TUITestContext) theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidth() error {
+	if tc.testModel == nil {
+		return fmt.Errorf("test model not initialized")
+	}
+	
+	// Get current view
+	actual := tc.model.View()
+	actual = StripANSI(actual)
+	
+	// Check that long titles are truncated appropriately for narrow terminal
+	// For a 60-character terminal, we expect titles to be truncated
+	lines := strings.Split(actual, "\n")
+	for _, line := range lines {
+		// Check that no line exceeds the terminal width
+		if len(line) > tc.terminalWidth {
+			return fmt.Errorf("line exceeds terminal width of %d characters: %s (length: %d)", tc.terminalWidth, line, len(line))
+		}
+		
+		// Check that long titles contain "..." indicating truncation
+		if strings.Contains(line, "SPR-124") && tc.terminalWidth < 100 {
+			if !strings.Contains(line, "...") {
+				return fmt.Errorf("expected long title to be truncated with '...' in narrow terminal, but got: %s", line)
+			}
+		}
+	}
+	
+	return nil
+}
+
 
 // InitializeScenario initializes godog with our step definitions
 func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
@@ -285,15 +328,19 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 		tc.fakeClient = linear.NewFakeLinearClient()
 		tc.t = t // Ensure t is set for each scenario
+		tc.terminalWidth = 80  // Reset to default
+		tc.terminalHeight = 24
 		return ctx, nil
 	})
 	
 	// Step definitions
 	ctx.Step(`^the following Linear issues exist:$`, tc.theFollowingLinearIssuesExist)
+	ctx.Step(`^my terminal width is (\d+) characters$`, tc.myTerminalWidthIsCharacters)
 	ctx.Step(`^I start the Sprout TUI$`, tc.iStartTheSproutTUI)
 	ctx.Step(`^I press "([^"]*)"$`, tc.iPress)
 	ctx.Step(`^I type "([^"]*)"$`, tc.iType)
 	ctx.Step(`^the UI should display:$`, tc.theUIShouldDisplay)
+	ctx.Step(`^the UI should display titles truncated to fit the available width$`, tc.theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidth)
 }
 
 // TestFeatures runs the Gherkin tests
