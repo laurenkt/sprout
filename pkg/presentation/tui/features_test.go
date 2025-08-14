@@ -16,6 +16,7 @@ import (
 	"sprout/pkg/domain/issue"
 	"sprout/pkg/domain/project"
 	"sprout/pkg/infrastructure/config"
+	"sprout/pkg/presentation/tui/components"
 	"sprout/pkg/shared/logging"
 )
 
@@ -202,8 +203,22 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 		identifier := row.Cells[0].Value
 		title := row.Cells[1].Value
 		parentID := row.Cells[2].Value
+		statusName := ""
+		if len(row.Cells) > 3 {
+			statusName = row.Cells[3].Value
+		}
 		
 		iss := issue.NewIssue(identifier, identifier, title)
+		
+		// Set status if provided
+		if statusName != "" {
+			iss.Status = issue.Status{
+				ID:   strings.ToLower(statusName),
+				Name: statusName,
+				Type: issue.StatusTypeActive, // Default type
+			}
+		}
+		
 		tc.fakeIssueRepo.AddIssue(iss, parentID)
 	}
 	
@@ -215,15 +230,20 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 	
 	// Create fake project
 	proj := &project.Project{
-		Name: "test-project",
+		Name: "sprout",
 		Path: "/test/path",
 	}
 	
 	// Create fake config
 	cfg := &config.Config{}
 	
-	// Create issue service with fake repository
+	// Create services
 	logger := logging.NewNoOpLogger()
+	
+	// Create fake worktree service (can be nil for tests)
+	var worktreeService *services.WorktreeService
+	
+	// Create issue service with fake repository
 	var issueService *services.IssueService
 	if tc.fakeIssueRepo != nil {
 		issueService = services.NewIssueService(tc.fakeIssueRepo, nil, logger)
@@ -231,7 +251,7 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 	
 	// Create the TUI app
 	var err error
-	tc.app, err = NewApp(nil, issueService, proj, cfg, logger)
+	tc.app, err = NewApp(worktreeService, issueService, proj, cfg, logger)
 	if err != nil {
 		return err
 	}
@@ -242,22 +262,21 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 		return err
 	}
 	
-	// Initialize the model
-	initCmd := tc.mainModel.Init()
-	if initCmd != nil {
-		// Execute initialization command (load issues)
-		msg := initCmd()
-		tc.mainModel, _ = tc.mainModel.Update(msg)
-	}
-	
 	// Set up teatest model
 	if tc.t != nil {
 		tc.testModel = teatest.NewTestModel(tc.t, tc.mainModel, 
 			teatest.WithInitialTermSize(tc.terminalWidth, tc.terminalHeight))
 		
-		// Send window size message
+		// Send window size message to make sure sizing is handled
 		windowSizeMsg := tea.WindowSizeMsg{Width: tc.terminalWidth, Height: tc.terminalHeight}
-		tc.mainModel, _ = tc.mainModel.Update(windowSizeMsg)
+		tc.testModel.Send(windowSizeMsg)
+		
+		// Manually send issues loaded message to simulate initialization
+		if tc.fakeIssueRepo != nil {
+			issues, _ := tc.fakeIssueRepo.GetAssignedIssues(context.Background())
+			issuesLoadedMsg := components.IssuesLoadedMsg{Issues: issues}
+			tc.testModel.Send(issuesLoadedMsg)
+		}
 	}
 	
 	return nil
