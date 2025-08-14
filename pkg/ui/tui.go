@@ -101,6 +101,10 @@ var (
 	titleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
 
+	// Issue status style
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("242"))
+
 	// Add subtask style
 	addSubtaskStyle = lipgloss.NewStyle().
 			Foreground(accentColor).
@@ -1121,6 +1125,7 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	}
 	
 	identifier := identifierStyle.Render(issue.Identifier)
+	statusText := statusStyle.Render(issue.State.Name)
 	titleText := titleStyle.Render(title)
 	
 	// Pad identifier to align with the longest identifier
