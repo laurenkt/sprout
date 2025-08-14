@@ -5,14 +5,14 @@ Feature: Sprout TUI Fuzzy Search
 
   Background:
     Given the following Linear issues exist:
-      | identifier | title                                           | parent_id |
-      | SPR-123    | Add user authentication                         |           |
-      | SPR-124    | Implement dashboard with analytics and reporting |           |
-      | SPR-125    | Create analytics component                      | SPR-124   |
-      | SPR-126    | Add reporting metrics                           | SPR-124   |
-      | SPR-127    | Fix critical bug in payment processing          |           |
-      | SPR-128    | Update user profile settings                    |           |
-      | SPR-129    | Implement notification system                   |           |
+      | identifier | title                                           | parent_id | status      |
+      | SPR-123    | Add user authentication                         |           | Todo        |
+      | SPR-124    | Implement dashboard with analytics and reporting |           | In Progress |
+      | SPR-125    | Create analytics component                      | SPR-124   | Todo        |
+      | SPR-126    | Add reporting metrics                           | SPR-124   | Done        |
+      | SPR-127    | Fix critical bug in payment processing          |           | In Review   |
+      | SPR-128    | Update user profile settings                    |           | Backlog     |
+      | SPR-129    | Implement notification system                   |           | Todo        |
 
   Scenario: Enter search mode with forward slash
     Given I start the Sprout TUI
@@ -22,11 +22,11 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /type to fuzzy search
-      ├──SPR-123  Add user authentication
-      ├──SPR-124  Implement dashboard with analytics and reporting
-      ├──SPR-127  Fix critical bug in payment processing
-      ├──SPR-128  Update user profile settings
-      └──SPR-129  Implement notification system
+      ├──SPR-123  Todo         Add user authentication
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      ├──SPR-127  In Review    Fix critical bug in payment processing
+      ├──SPR-128  Backlog      Update user profile settings
+      └──SPR-129  Todo         Implement notification system
       """
 
   Scenario: Filter issues by typing partial text
@@ -38,7 +38,7 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /auth
-      └──SPR-123  Add user authentication
+      └──SPR-123  Todo  Add user authentication
       """
 
   Scenario: Filter issues by identifier
@@ -50,7 +50,7 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /127
-      └──SPR-127  Fix critical bug in payment processing
+      └──SPR-127  In Review  Fix critical bug in payment processing
       """
 
   Scenario: Filter shows multiple matches
@@ -62,8 +62,8 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /user
-      ├──SPR-123  Add user authentication
-      └──SPR-128  Update user profile settings
+      ├──SPR-123  Todo     Add user authentication
+      └──SPR-128  Backlog  Update user profile settings
       """
 
   Scenario: No matches found
@@ -87,11 +87,11 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       > sprout/enter branch name or select suggestion below
-      ├──SPR-123  Add user authentication
-      ├──SPR-124  Implement dashboard with analytics and reporting
-      ├──SPR-127  Fix critical bug in payment processing
-      ├──SPR-128  Update user profile settings
-      └──SPR-129  Implement notification system
+      ├──SPR-123  Todo         Add user authentication
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      ├──SPR-127  In Review    Fix critical bug in payment processing
+      ├──SPR-128  Backlog      Update user profile settings
+      └──SPR-129  Todo         Implement notification system
       """
 
   Scenario: Navigate search results with arrow keys
@@ -104,8 +104,8 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /user sprout/spr-123-add-user-authentication
-      ├──SPR-123  Add user authentication
-      └──SPR-128  Update user profile settings
+      ├──SPR-123  Todo     Add user authentication
+      └──SPR-128  Backlog  Update user profile settings
       """
     When I press "down"
     Then the UI should display:
@@ -113,8 +113,8 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /user sprout/spr-128-update-user-profile-settings
-      ├──SPR-123  Add user authentication
-      └──SPR-128  Update user profile settings
+      ├──SPR-123  Todo     Add user authentication
+      └──SPR-128  Backlog  Update user profile settings
       """
     When I press "up"
     Then the UI should display:
@@ -122,8 +122,8 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /user sprout/spr-123-add-user-authentication
-      ├──SPR-123  Add user authentication
-      └──SPR-128  Update user profile settings
+      ├──SPR-123  Todo     Add user authentication
+      └──SPR-128  Backlog  Update user profile settings
       """
 
   Scenario: Backspace works in search mode
@@ -136,9 +136,9 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /aut
-      ├──SPR-123  Add user authentication
-      ├──SPR-127  Fix critical bug in payment processing
-      └──SPR-128  Update user profile settings
+      ├──SPR-123  Todo       Add user authentication
+      ├──SPR-127  In Review  Fix critical bug in payment processing
+      └──SPR-128  Backlog    Update user profile settings
       """
     When I press "backspace"
     Then the UI should display:
@@ -146,9 +146,9 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /au
-      ├──SPR-123  Add user authentication
-      ├──SPR-127  Fix critical bug in payment processing
-      └──SPR-128  Update user profile settings
+      ├──SPR-123  Todo       Add user authentication
+      ├──SPR-127  In Review  Fix critical bug in payment processing
+      └──SPR-128  Backlog    Update user profile settings
       """
     When I press "backspace"
     Then the UI should display:
@@ -156,11 +156,11 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /a
-      ├──SPR-123  Add user authentication
-      ├──SPR-124  Implement dashboard with analytics and reporting
-      ├──SPR-127  Fix critical bug in payment processing
-      ├──SPR-128  Update user profile settings
-      └──SPR-129  Implement notification system
+      ├──SPR-123  Todo         Add user authentication
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      ├──SPR-127  In Review    Fix critical bug in payment processing
+      ├──SPR-128  Backlog      Update user profile settings
+      └──SPR-129  Todo         Implement notification system
       """
     When I press "backspace"
     Then the UI should display:
@@ -168,9 +168,9 @@ Feature: Sprout TUI Fuzzy Search
       🌱 sprout
 
       /type to fuzzy search
-      ├──SPR-123  Add user authentication
-      ├──SPR-124  Implement dashboard with analytics and reporting
-      ├──SPR-127  Fix critical bug in payment processing
-      ├──SPR-128  Update user profile settings
-      └──SPR-129  Implement notification system
+      ├──SPR-123  Todo         Add user authentication
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      ├──SPR-127  In Review    Fix critical bug in payment processing
+      ├──SPR-128  Backlog      Update user profile settings
+      └──SPR-129  Todo         Implement notification system
       """

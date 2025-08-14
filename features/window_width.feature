@@ -5,10 +5,10 @@ Feature: Window Width Responsive Layout
 
   Background:
     Given the following Linear issues exist:
-      | identifier | title                                                              | parent_id |
-      | SPR-123    | Add user authentication                                            |           |
-      | SPR-124    | Implement comprehensive dashboard with advanced analytics and detailed reporting capabilities |           |
-      | SPR-125    | Create analytics component with real-time data visualization      | SPR-124   |
+      | identifier | title                                                              | parent_id | status      |
+      | SPR-123    | Add user authentication                                            |           | Todo        |
+      | SPR-124    | Implement comprehensive dashboard with advanced analytics and detailed reporting capabilities |           | In Progress |
+      | SPR-125    | Create analytics component with real-time data visualization      | SPR-124   | Todo        |
 
   Scenario: Wide terminal shows full titles
     Given my terminal width is 120 characters
@@ -18,8 +18,8 @@ Feature: Window Width Responsive Layout
       🌱 sprout
 
       > sprout/enter branch name or select suggestion below
-      ├──SPR-123  Add user authentication
-      └──SPR-124  Implement comprehensive dashboard with advanced analytics and detailed reporting capabilities
+      ├──SPR-123  Todo         Add user authentication
+      └──SPR-124  In Progress  Implement comprehensive dashboard with advanced analytics and detailed reporting ...
       """
 
   Scenario: Narrow terminal truncates appropriately

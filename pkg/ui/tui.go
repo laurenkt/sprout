@@ -48,6 +48,7 @@ type model struct {
 	Width              int    // terminal width
 	Height             int    // terminal height
 	MaxIdentifierWidth int    // maximum width of issue identifiers for alignment
+	MaxStatusWidth     int    // maximum width of issue statuses for alignment
 }
 
 var (
@@ -81,6 +82,20 @@ var (
 	// Issue identifier style
 	identifierStyle = lipgloss.NewStyle().
 			Foreground(primaryColor)
+
+	// Issue status styles - color-coded by status type
+	statusBacklogStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")) // Dark gray for backlog/unstarted
+	statusTodoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("243")) // Light gray for todo
+	statusInProgressStyle = lipgloss.NewStyle().
+			Foreground(warningColor) // Yellow for in progress
+	statusInReviewStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("177")) // Purple for in review
+	statusDoneStyle = lipgloss.NewStyle().
+			Foreground(accentColor) // Green for done/completed
+	statusCancelledStyle = lipgloss.NewStyle().
+			Foreground(errorColor) // Red for cancelled
 
 	// Issue title style
 	titleStyle = lipgloss.NewStyle().
@@ -859,6 +874,25 @@ func (m *model) filterIssuesBySearch(query string) []linear.Issue {
 	return filtered
 }
 
+// getStatusStyle returns the appropriate style for a given issue status
+func (m *model) getStatusStyle(state linear.State) lipgloss.Style {
+	switch strings.ToLower(state.Type) {
+	case "backlog", "unstarted":
+		return statusBacklogStyle
+	case "started", "in_progress", "in progress":
+		return statusInProgressStyle
+	case "in_review", "review", "in review":
+		return statusInReviewStyle
+	case "done", "completed":
+		return statusDoneStyle
+	case "cancelled", "canceled":
+		return statusCancelledStyle
+	default:
+		// For "todo" and other unknown states
+		return statusTodoStyle
+	}
+}
+
 // addSubtaskToParent adds a newly created subtask to its parent's children
 func (m *model) addSubtaskToParent(parentID string, subtask linear.Issue) {
 	var addToParent func(issues *[]linear.Issue)
@@ -1003,32 +1037,40 @@ func (m model) buildSimpleLinearTree() string {
 		return ""
 	}
 
-	// Calculate maximum identifier width for alignment
+	// Calculate maximum identifier and status widths for alignment
 	maxIdentifierWidth := 0
-	var calculateMaxWidth func([]linear.Issue)
-	calculateMaxWidth = func(issues []linear.Issue) {
+	maxStatusWidth := 0
+	var calculateMaxWidths func([]linear.Issue)
+	calculateMaxWidths = func(issues []linear.Issue) {
 		for _, issue := range issues {
-			width := lipgloss.Width(issue.Identifier)
-			if width > maxIdentifierWidth {
-				maxIdentifierWidth = width
+			identifierWidth := lipgloss.Width(issue.Identifier)
+			if identifierWidth > maxIdentifierWidth {
+				maxIdentifierWidth = identifierWidth
 			}
+			
+			statusWidth := lipgloss.Width(issue.State.Name)
+			if statusWidth > maxStatusWidth {
+				maxStatusWidth = statusWidth
+			}
+			
 			// Check children if not in search mode
 			if !m.SearchMode && len(issue.Children) > 0 {
-				calculateMaxWidth(issue.Children)
+				calculateMaxWidths(issue.Children)
 			}
 		}
 	}
 	
-	// Calculate max width from all issues (including nested children)
+	// Calculate max widths from all issues (including nested children)
 	if m.SearchMode {
-		calculateMaxWidth(m.FilteredIssues)
+		calculateMaxWidths(m.FilteredIssues)
 	} else {
-		calculateMaxWidth(m.LinearIssues)
+		calculateMaxWidths(m.LinearIssues)
 	}
 	
-	// Create a copy of the model with the calculated max width
+	// Create a copy of the model with the calculated max widths
 	mWithWidth := m
 	mWithWidth.MaxIdentifierWidth = maxIdentifierWidth
+	mWithWidth.MaxStatusWidth = maxStatusWidth
 
 	// Build tree using lipgloss tree library directly from the tree structure
 	root := tree.Root("").
@@ -1055,12 +1097,18 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	// Create the display content
 	title := issue.Title
 	
+	// Get status display
+	statusText := issue.State.Name
+	statusStyle := m.getStatusStyle(issue.State)
+	styledStatus := statusStyle.Render(statusText)
+	
 	// Calculate available width for title based on terminal size
-	// Account for: identifier, spaces, tree symbols, and margins
+	// Account for: identifier, status, spaces, tree symbols, and margins
 	identifierWidth := lipgloss.Width(issue.Identifier)
+	statusWidth := lipgloss.Width(statusText)
 	treePrefixWidth := (issue.Depth + 1) * 3 // Approximate tree prefix width
-	marginWidth := 10 // Safety margin for tree symbols and spacing
-	availableWidth := m.Width - identifierWidth - treePrefixWidth - marginWidth
+	marginWidth := 15 // Safety margin for tree symbols, spacing, and status padding
+	availableWidth := m.Width - m.MaxIdentifierWidth - m.MaxStatusWidth - treePrefixWidth - marginWidth
 	
 	// Ensure minimum width and truncate if necessary
 	if availableWidth < 20 {
@@ -1077,10 +1125,15 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	
 	// Pad identifier to align with the longest identifier
 	identifierWidth = lipgloss.Width(identifier)
-	padding := m.MaxIdentifierWidth - identifierWidth
-	paddedIdentifier := identifier + strings.Repeat(" ", padding)
+	identifierPadding := m.MaxIdentifierWidth - identifierWidth
+	paddedIdentifier := identifier + strings.Repeat(" ", identifierPadding)
 	
-	content := fmt.Sprintf("%s  %s", paddedIdentifier, titleText)
+	// Pad status to align with the longest status
+	statusWidth = lipgloss.Width(statusText)
+	statusPadding := m.MaxStatusWidth - statusWidth
+	paddedStatus := styledStatus + strings.Repeat(" ", statusPadding)
+	
+	content := fmt.Sprintf("%s  %s  %s", paddedIdentifier, paddedStatus, titleText)
 
 	// Apply selection styling if this is the selected item
 	if m.SelectedIssue != nil && m.SelectedIssue.ID == issue.ID {

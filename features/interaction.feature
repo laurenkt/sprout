@@ -5,12 +5,12 @@ Feature: Sprout TUI Interaction
 
   Background:
     Given the following Linear issues exist:
-      | identifier | title                                           | parent_id |
-      | SPR-123    | Add user authentication                         |           |
-      | SPR-124    | Implement dashboard with analytics and reporting |           |
-      | SPR-125    | Create analytics component                      | SPR-124   |
-      | SPR-126    | Add reporting metrics                           | SPR-124   |
-      | SPR-127    | Fix critical bug in payment processing          |           |
+      | identifier | title                                           | parent_id | status      |
+      | SPR-123    | Add user authentication                         |           | Todo        |
+      | SPR-124    | Implement dashboard with analytics and reporting |           | In Progress |
+      | SPR-125    | Create analytics component                      | SPR-124   | Todo        |
+      | SPR-126    | Add reporting metrics                           | SPR-124   | In Review   |
+      | SPR-127    | Fix critical bug in payment processing          |           | Done        |
 
   Scenario: Navigate down and back up
     Given I start the Sprout TUI
@@ -20,9 +20,9 @@ Feature: Sprout TUI Interaction
       🌱 sprout
 
       > sprout/spr-123-add-user-authentication█
-      ├──SPR-123  Add user authentication
-      ├──SPR-124  Implement dashboard with analytics and reporting
-      └──SPR-127  Fix critical bug in payment processing
+      ├──SPR-123  Todo         Add user authentication
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      └──SPR-127  Done         Fix critical bug in payment processing
       """
     When I press "up"
     Then the UI should display:
@@ -30,7 +30,7 @@ Feature: Sprout TUI Interaction
       🌱 sprout
 
       > sprout/█enter branch name or select suggestion below
-      ├──SPR-123  Add user authentication
-      ├──SPR-124  Implement dashboard with analytics and reporting
-      └──SPR-127  Fix critical bug in payment processing
+      ├──SPR-123  Todo         Add user authentication
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      └──SPR-127  Done         Fix critical bug in payment processing
       """
