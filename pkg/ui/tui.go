@@ -47,6 +47,7 @@ type model struct {
 	FilteredIssues     []linear.Issue // filtered list of issues based on search
 	Width              int    // terminal width
 	Height             int    // terminal height
+	MaxIdentifierWidth int    // maximum width of issue identifiers for alignment
 }
 
 var (
@@ -985,6 +986,33 @@ func (m model) buildSimpleLinearTree() string {
 		return ""
 	}
 
+	// Calculate maximum identifier width for alignment
+	maxIdentifierWidth := 0
+	var calculateMaxWidth func([]linear.Issue)
+	calculateMaxWidth = func(issues []linear.Issue) {
+		for _, issue := range issues {
+			width := lipgloss.Width(issue.Identifier)
+			if width > maxIdentifierWidth {
+				maxIdentifierWidth = width
+			}
+			// Check children if not in search mode
+			if !m.SearchMode && len(issue.Children) > 0 {
+				calculateMaxWidth(issue.Children)
+			}
+		}
+	}
+	
+	// Calculate max width from all issues (including nested children)
+	if m.SearchMode {
+		calculateMaxWidth(m.FilteredIssues)
+	} else {
+		calculateMaxWidth(m.LinearIssues)
+	}
+	
+	// Create a copy of the model with the calculated max width
+	mWithWidth := m
+	mWithWidth.MaxIdentifierWidth = maxIdentifierWidth
+
 	// Build tree using lipgloss tree library directly from the tree structure
 	root := tree.Root("").
 		ItemStyle(normalStyle).
@@ -996,9 +1024,9 @@ func (m model) buildSimpleLinearTree() string {
 		if m.SearchMode {
 			issueCopy := issue
 			issueCopy.Expanded = false // Don't show children in search mode
-			m.addIssueNode(root, issueCopy)
+			mWithWidth.addIssueNode(root, issueCopy)
 		} else {
-			m.addIssueNode(root, issue)
+			mWithWidth.addIssueNode(root, issue)
 		}
 	}
 
@@ -1029,7 +1057,13 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	
 	identifier := identifierStyle.Render(issue.Identifier)
 	titleText := titleStyle.Render(title)
-	content := fmt.Sprintf("%s  %s", identifier, titleText)
+	
+	// Pad identifier to align with the longest identifier
+	identifierWidth = lipgloss.Width(identifier)
+	padding := m.MaxIdentifierWidth - identifierWidth
+	paddedIdentifier := identifier + strings.Repeat(" ", padding)
+	
+	content := fmt.Sprintf("%s  %s", paddedIdentifier, titleText)
 
 	// Apply selection styling if this is the selected item
 	if m.SelectedIssue != nil && m.SelectedIssue.ID == issue.ID {
