@@ -43,7 +43,7 @@ func (r *Repository) GetAssignedIssues(ctx context.Context) ([]*issue.Issue, err
 			issues(
 				filter: {
 					assignee: { isMe: { eq: true } }
-					state: { type: { neq: "completed" } }
+					state: { type: { nin: ["completed", "canceled"] } }
 				}
 				orderBy: updatedAt
 			) {
@@ -169,7 +169,11 @@ func (r *Repository) GetIssueChildren(ctx context.Context, parentID string) ([]*
 	query := `
 		query($issueId: String!) {
 			issue(id: $issueId) {
-				children {
+				children(
+					filter: {
+						state: { type: { nin: ["completed", "canceled"] } }
+					}
+				) {
 					nodes {
 						id
 						title

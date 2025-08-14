@@ -242,6 +242,7 @@ type IssueListComponent struct {
 	selectedIndex      int
 	expandedIssues     map[string]bool
 	maxIdentifierWidth int
+	maxStatusWidth     int
 }
 
 func NewIssueListComponent(issueService *services.IssueService, logger logging.Logger) *IssueListComponent {
@@ -438,20 +439,35 @@ func (c *IssueListComponent) addIssueToTree(parent *tree.Tree, iss *issue.Issue,
 }
 
 func (c *IssueListComponent) formatIssueContent(iss *issue.Issue, state *models.AppState) string {
+	// Format identifier with fixed width
 	identifier := lipgloss.NewStyle().Foreground(lipgloss.Color("69")).Render(iss.Identifier)
 	identifierWidth := lipgloss.Width(identifier)
-	padding := c.maxIdentifierWidth - identifierWidth
-	paddedIdentifier := identifier + strings.Repeat(" ", padding)
+	idPadding := c.maxIdentifierWidth - identifierWidth
+	paddedIdentifier := identifier + strings.Repeat(" ", idPadding)
 	
+	// Format status with color and fixed width
+	statusStyle := c.getStatusStyle(iss.Status.Name)
+	styledStatus := statusStyle.Render(iss.Status.Name)
+	statusWidth := lipgloss.Width(styledStatus)
+	statusPadding := c.maxStatusWidth - statusWidth
+	paddedStatus := styledStatus + strings.Repeat(" ", statusPadding)
+	
+	// Calculate available width for title
+	// Account for: identifier + 2 spaces + status + 2 spaces + some margin
+	usedWidth := c.maxIdentifierWidth + 2 + c.maxStatusWidth + 2 + 10
+	availableWidth := state.Width - usedWidth
+	
+	// Format title with truncation if needed
 	title := iss.Title
-	availableWidth := state.Width - c.maxIdentifierWidth - 20
 	if availableWidth > 20 && len(title) > availableWidth {
 		title = title[:availableWidth-3] + "..."
 	}
 	titleText := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render(title)
 	
-	content := fmt.Sprintf("%s  %s", paddedIdentifier, titleText)
+	// Combine all parts: identifier + status + title
+	content := fmt.Sprintf("%s  %s  %s", paddedIdentifier, paddedStatus, titleText)
 	
+	// Apply selection highlighting
 	if state.SelectedIssue != nil && state.SelectedIssue.ID == iss.ID {
 		content = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("237")).Bold(true).Render(content)
 	}
@@ -478,14 +494,50 @@ func (c *IssueListComponent) findNextVisibleIssue(current *issue.Issue, issues [
 }
 
 func (c *IssueListComponent) calculateMaxIdentifierWidth(issues []*issue.Issue) {
-	maxWidth := 0
-	for _, iss := range issues {
-		width := len(iss.Identifier)
-		if width > maxWidth {
-			maxWidth = width
+	maxIdWidth := 0
+	maxStatusWidth := 0
+	
+	var calculateWidths func([]*issue.Issue)
+	calculateWidths = func(issueList []*issue.Issue) {
+		for _, iss := range issueList {
+			idWidth := len(iss.Identifier)
+			if idWidth > maxIdWidth {
+				maxIdWidth = idWidth
+			}
+			
+			statusWidth := len(iss.Status.Name)
+			if statusWidth > maxStatusWidth {
+				maxStatusWidth = statusWidth
+			}
+			
+			// Check children recursively
+			if len(iss.Children) > 0 {
+				calculateWidths(iss.Children)
+			}
 		}
 	}
-	c.maxIdentifierWidth = maxWidth
+	
+	calculateWidths(issues)
+	c.maxIdentifierWidth = maxIdWidth
+	c.maxStatusWidth = maxStatusWidth
+}
+
+// getStatusStyle returns a styled status string based on the status name
+func (c *IssueListComponent) getStatusStyle(statusName string) lipgloss.Style {
+	switch strings.ToLower(statusName) {
+	case "todo", "backlog":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("243")) // Gray
+	case "in progress", "started", "in_progress":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("221")) // Yellow
+	case "in review", "in_review", "review":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("75"))  // Blue
+	case "done", "completed":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("108")) // Green
+	case "cancelled", "canceled":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("204")) // Red
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("252")) // Default white
+	}
 }
 
 func (c *IssueListComponent) addChildrenToIssue(state *models.AppState, parentID string, children []*issue.Issue) {
