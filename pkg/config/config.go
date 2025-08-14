@@ -129,12 +129,71 @@ func (c *Config) GetDefaultCommand() []string {
 		return nil
 	}
 
-	parts := strings.Fields(c.DefaultCommand)
+	parts := parseCommandLine(c.DefaultCommand)
 	if len(parts) == 0 {
 		return nil
 	}
 
 	return parts
+}
+
+// parseCommandLine parses a command line string respecting quotes
+func parseCommandLine(command string) []string {
+	var args []string
+	var current strings.Builder
+	var inQuote rune
+	var escaped bool
+
+	for _, r := range command {
+		if escaped {
+			// Handle escaped characters
+			switch r {
+			case '"', '\'', '\\':
+				current.WriteRune(r)
+			default:
+				// For other escapes, keep the backslash
+				current.WriteRune('\\')
+				current.WriteRune(r)
+			}
+			escaped = false
+			continue
+		}
+
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+
+		if inQuote != 0 {
+			// Inside quotes
+			if r == inQuote {
+				inQuote = 0
+			} else {
+				current.WriteRune(r)
+			}
+		} else {
+			// Outside quotes
+			switch r {
+			case '"', '\'':
+				inQuote = r
+			case ' ', '\t', '\n':
+				// Whitespace separates arguments
+				if current.Len() > 0 {
+					args = append(args, current.String())
+					current.Reset()
+				}
+			default:
+				current.WriteRune(r)
+			}
+		}
+	}
+
+	// Don't forget the last argument
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+
+	return args
 }
 
 func (c *Config) GetLinearAPIKey() string {
