@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/tree"
+	"github.com/lithammer/fuzzysearch/fuzzy"
 	"sprout/pkg/config"
 	"sprout/pkg/git"
 	"sprout/pkg/linear"
@@ -41,6 +42,9 @@ type model struct {
 	SubtaskParentID    string // ID of parent issue when creating subtask
 	AddSubtaskSelected string // ID of parent issue whose "Add subtask" is selected
 	DefaultPlaceholder string // The default placeholder text for the input
+	SearchMode         bool   // true when in fuzzy search mode (triggered by /)
+	SearchQuery        string // current search query in search mode
+	FilteredIssues     []linear.Issue // filtered list of issues based on search
 }
 
 var (
@@ -206,6 +210,9 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		SubtaskParentID:    "",
 		AddSubtaskSelected: "",
 		DefaultPlaceholder: "enter branch name or select suggestion below",
+		SearchMode:         false,
+		SearchQuery:        "",
+		FilteredIssues:     nil,
 	}, nil
 }
 
@@ -242,6 +249,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
+			// Check if we're in search mode and exit that
+			if m.SearchMode {
+				m.SearchMode = false
+				m.SearchQuery = ""
+				m.FilteredIssues = nil
+				m.TextInput.Placeholder = m.DefaultPlaceholder
+				m.TextInput.SetValue("") // Clear the search input
+				m.InputMode = true
+				m.TextInput.Focus()
+				m.SelectedIssue = nil
+				return m, nil
+			}
+			
 			// Check if we're in subtask input mode and exit that
 			if m.SubtaskInputMode {
 				m.SubtaskInputMode = false
@@ -295,26 +315,56 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyUp:
 			if !m.Submitted {
-				if m.SelectedIssue == nil && m.AddSubtaskSelected == "" {
+				if m.SearchMode {
+					// In search mode, navigate through filtered results
+					if len(m.FilteredIssues) > 0 {
+						if m.SelectedIssue == nil {
+							// Nothing selected, go to last filtered issue
+							m.SelectedIssue = &m.FilteredIssues[len(m.FilteredIssues)-1]
+							m.InputMode = false
+							// Don't update placeholder in search mode
+						} else {
+							// Find current issue in filtered list and go to previous
+							for i, issue := range m.FilteredIssues {
+								if issue.ID == m.SelectedIssue.ID {
+									if i > 0 {
+										m.SelectedIssue = &m.FilteredIssues[i-1]
+									} else {
+										// At first issue, go back to search input
+										m.SelectedIssue = nil
+										m.InputMode = true
+									}
+									break
+								}
+							}
+						}
+					}
+				} else if m.SelectedIssue == nil && m.AddSubtaskSelected == "" {
 					// Currently in custom input mode, try to go to last visible issue
 					if len(m.LinearIssues) > 0 {
 						m.SelectedIssue = m.getLastVisibleIssue()
 						m.InputMode = false
 						m.TextInput.Blur()
-						m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
+						if !m.SearchMode {
+							m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
+						}
 					}
 				} else if m.AddSubtaskSelected != "" {
 					// From "Add subtask" selection, go to parent issue
 					if parent := m.findIssueByID(m.AddSubtaskSelected); parent != nil {
 						m.SelectedIssue = parent
 						m.AddSubtaskSelected = ""
-						m.TextInput.Placeholder = parent.GetBranchName()
+						if !m.SearchMode {
+							m.TextInput.Placeholder = parent.GetBranchName()
+						}
 					}
 				} else if m.SelectedIssue != nil {
 					// Try to go to previous issue
 					if prevIssue := m.SelectedIssue.PrevVisible(m.LinearIssues); prevIssue != nil {
 						m.SelectedIssue = prevIssue
-						m.TextInput.Placeholder = prevIssue.GetBranchName()
+						if !m.SearchMode {
+							m.TextInput.Placeholder = prevIssue.GetBranchName()
+						}
 					} else {
 						// Go back to custom input mode
 						m.SelectedIssue = nil
@@ -328,7 +378,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyDown:
 			if !m.Submitted {
-				if m.AddSubtaskSelected != "" {
+				if m.SearchMode {
+					// In search mode, navigate through filtered results
+					if len(m.FilteredIssues) > 0 {
+						if m.SelectedIssue == nil {
+							// Nothing selected, go to first filtered issue
+							m.SelectedIssue = &m.FilteredIssues[0]
+							m.InputMode = false
+							// Don't update placeholder in search mode
+						} else {
+							// Find current issue in filtered list and go to next
+							for i, issue := range m.FilteredIssues {
+								if issue.ID == m.SelectedIssue.ID {
+									if i < len(m.FilteredIssues)-1 {
+										m.SelectedIssue = &m.FilteredIssues[i+1]
+									}
+									// else stay on last issue
+									break
+								}
+							}
+						}
+					}
+				} else if m.AddSubtaskSelected != "" {
 					// From "Add subtask" selection, go to next sibling of parent
 					parent := m.findIssueByID(m.AddSubtaskSelected)
 					if parent != nil {
@@ -349,8 +420,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Move from custom input to first visible issue
 					m.SelectedIssue = m.getFirstVisibleIssue()
 					m.InputMode = false
-					m.TextInput.Blur()
-					m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
+					if !m.SearchMode {
+						m.TextInput.Blur()
+						m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
+					}
 				} else if m.SelectedIssue != nil {
 					// Handle down navigation based on current selection
 					if m.SelectedIssue.Expanded && len(m.SelectedIssue.Children) > 0 {
@@ -398,7 +471,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyRight:
-			if !m.InputMode && !m.Submitted {
+			if !m.InputMode && !m.Submitted && !m.SearchMode {
 				if m.AddSubtaskSelected != "" {
 					// Start subtask input mode
 					m.SubtaskInputMode = true
@@ -423,7 +496,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyLeft:
-			if !m.InputMode && !m.Submitted {
+			if !m.InputMode && !m.Submitted && !m.SearchMode {
 				if m.AddSubtaskSelected != "" {
 					// For add subtask selection, collapse the parent and select it
 					m.updateIssueExpansion(m.AddSubtaskSelected, false)
@@ -438,6 +511,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+			
+		case tea.KeyRunes:
+			// Handle "/" key to enter search mode
+			if !m.Submitted && !m.SubtaskInputMode && len(msg.Runes) == 1 && msg.Runes[0] == '/' {
+				if !m.SearchMode {
+					// Enter search mode
+					m.SearchMode = true
+					m.SearchQuery = ""
+					m.InputMode = true
+					m.SelectedIssue = nil
+					m.AddSubtaskSelected = ""
+					m.TextInput.Placeholder = "type to fuzzy search"
+					m.TextInput.SetValue("/")
+					m.TextInput.Focus()
+					// Initialize filtered issues to show all
+					m.FilteredIssues = m.LinearIssues
+					return m, nil
+				}
+			}
+			
+			// In search mode, handle typing
+			if m.SearchMode && !m.Submitted {
+				// Let the text input handle the typing
+				m.TextInput, cmd = m.TextInput.Update(msg)
+				// Extract search query (remove the leading "/")
+				value := m.TextInput.Value()
+				if strings.HasPrefix(value, "/") {
+					m.SearchQuery = value[1:]
+				} else {
+					m.SearchQuery = value
+				}
+				// Update filtered issues
+				m.FilteredIssues = m.filterIssuesBySearch(m.SearchQuery)
+				return m, cmd
+			}
 		}
 
 	case worktreeCreatedMsg:
@@ -460,8 +568,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.LinearLoading = false
 		m.LinearIssues = msg.issues
 		m.LinearError = ""
-		// Update placeholder if a Linear ticket is currently selected
-		if m.SelectedIssue != nil {
+		// Update placeholder if a Linear ticket is currently selected (but not in search mode)
+		if m.SelectedIssue != nil && !m.SearchMode {
 			m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
 		}
 
@@ -471,8 +579,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case childrenLoadedMsg:
 		m.setIssueChildren(msg.parentID, msg.children)
-		// Update placeholder if a Linear ticket is currently selected
-		if m.SelectedIssue != nil {
+		// Update placeholder if a Linear ticket is currently selected (but not in search mode)
+		if m.SelectedIssue != nil && !m.SearchMode {
 			m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
 		}
 
@@ -519,7 +627,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Update text inputs based on current mode
-	if m.InputMode {
+	if m.InputMode && !m.SearchMode {
 		m.TextInput, cmd = m.TextInput.Update(msg)
 	} else if m.SubtaskInputMode {
 		m.SubtaskInput, cmd = m.SubtaskInput.Update(msg)
@@ -664,6 +772,57 @@ func (m model) createSubtaskInline(parentID, title string) tea.Cmd {
 	}
 }
 
+// filterIssuesBySearch filters issues using fuzzy search on identifier and title
+func (m *model) filterIssuesBySearch(query string) []linear.Issue {
+	if query == "" {
+		return m.LinearIssues
+	}
+	
+	var filtered []linear.Issue
+	
+	// Helper function to recursively collect all issues (including children)
+	var collectAllIssues func(issues []linear.Issue) []linear.Issue
+	collectAllIssues = func(issues []linear.Issue) []linear.Issue {
+		var result []linear.Issue
+		for _, issue := range issues {
+			result = append(result, issue)
+			if len(issue.Children) > 0 {
+				result = append(result, collectAllIssues(issue.Children)...)
+			}
+		}
+		return result
+	}
+	
+	allIssues := collectAllIssues(m.LinearIssues)
+	
+	// Create search targets (identifier + title) for fuzzy matching
+	var targets []string
+	for _, issue := range allIssues {
+		targets = append(targets, strings.ToLower(issue.Identifier+" "+issue.Title))
+	}
+	
+	// Perform fuzzy search  
+	matches := fuzzy.FindNormalized(strings.ToLower(query), targets)
+	
+	// Build filtered results maintaining only top-level issues
+	matchedTargets := make(map[string]bool)
+	for _, match := range matches {
+		matchedTargets[match] = true
+	}
+	
+	for _, issue := range allIssues {
+		target := strings.ToLower(issue.Identifier+" "+issue.Title)
+		if matchedTargets[target] {
+			// Only include top-level issues (depth 0) in filtered results
+			if issue.Depth == 0 {
+				filtered = append(filtered, issue)
+			}
+		}
+	}
+	
+	return filtered
+}
+
 // addSubtaskToParent adds a newly created subtask to its parent's children
 func (m *model) addSubtaskToParent(parentID string, subtask linear.Issue) {
 	var addToParent func(issues *[]linear.Issue)
@@ -744,16 +903,37 @@ func (m model) View() string {
 	s.WriteString(headerStyle.Render("🌱 sprout"))
 	s.WriteString("\n")
 
-	// Input using textinput component - adjust prompt style based on selection
-	if m.SelectedIssue == nil {
-		// When input is selected, use selected style for prompt
+	// Input using textinput component - adjust prompt style based on selection and display search mode appropriately
+	if m.SearchMode {
+		// In search mode, show special search UI
 		m.TextInput.PromptStyle = selectedStyle
+		// Show search input with proper formatting
+		value := m.TextInput.Value()
+		if value == "/" && m.SearchQuery == "" {
+			// Show placeholder when only "/" is entered
+			s.WriteString(selectedStyle.Render("/type to fuzzy search"))
+		} else {
+			// Show actual search content with selected branch if any
+			searchDisplay := "/" + m.SearchQuery
+			if m.SelectedIssue != nil && !m.InputMode {
+				// Show selected issue's branch name after the search
+				fullDisplay := searchDisplay + " sprout/" + m.SelectedIssue.GetBranchName()
+				s.WriteString(selectedStyle.Render(fullDisplay))
+			} else {
+				s.WriteString(selectedStyle.Render(searchDisplay))
+			}
+		}
 	} else {
-		// When input is not selected, use normal style
-		m.TextInput.PromptStyle = lipgloss.NewStyle().Foreground(primaryColor)
+		// Normal mode - adjust prompt style based on selection
+		if m.SelectedIssue == nil {
+			// When input is selected, use selected style for prompt
+			m.TextInput.PromptStyle = selectedStyle
+		} else {
+			// When input is not selected, use normal style
+			m.TextInput.PromptStyle = lipgloss.NewStyle().Foreground(primaryColor)
+		}
+		s.WriteString(m.TextInput.View())
 	}
-
-	s.WriteString(m.TextInput.View())
 	s.WriteString("\n")
 
 	// Display Linear tickets tree if available
@@ -775,7 +955,15 @@ func (m model) View() string {
 
 
 func (m model) buildSimpleLinearTree() string {
-	if len(m.LinearIssues) == 0 {
+	// Choose which issues to display based on search mode
+	var issuesToDisplay []linear.Issue
+	if m.SearchMode {
+		issuesToDisplay = m.FilteredIssues
+	} else {
+		issuesToDisplay = m.LinearIssues
+	}
+	
+	if len(issuesToDisplay) == 0 {
 		return ""
 	}
 
@@ -785,8 +973,15 @@ func (m model) buildSimpleLinearTree() string {
 		EnumeratorStyle(expandedStyle)
 
 	// Recursively build the tree
-	for _, issue := range m.LinearIssues {
-		m.addIssueNode(root, issue)
+	for _, issue := range issuesToDisplay {
+		// In search mode, pass a copy of the issue that's not expanded
+		if m.SearchMode {
+			issueCopy := issue
+			issueCopy.Expanded = false // Don't show children in search mode
+			m.addIssueNode(root, issueCopy)
+		} else {
+			m.addIssueNode(root, issue)
+		}
 	}
 
 	return root.String()

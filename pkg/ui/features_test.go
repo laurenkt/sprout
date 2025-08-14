@@ -196,6 +196,10 @@ func (tc *TUITestContext) iPress(key string) error {
 		keyMsg = tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
+	case "escape":
+		keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
+	case "/":
+		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
 	default:
 		return fmt.Errorf("unknown key: %s", key)
 	}
@@ -214,6 +218,31 @@ func (tc *TUITestContext) iPress(key string) error {
 		// Process the command result
 		finalModel, _ := tc.model.Update(msg)
 		tc.model = finalModel.(model)
+	}
+	
+	return nil
+}
+
+func (tc *TUITestContext) iType(text string) error {
+	// Send each character as a separate key event
+	for _, char := range text {
+		keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{char}}
+		
+		if tc.testModel != nil {
+			tc.testModel.Send(keyMsg)
+		}
+		
+		// Update our local model reference and execute any returned commands
+		updatedModel, cmd := tc.model.Update(keyMsg)
+		tc.model = updatedModel.(model)
+		
+		// Execute the returned command if there is one
+		if cmd != nil {
+			msg := cmd()
+			// Process the command result
+			finalModel, _ := tc.model.Update(msg)
+			tc.model = finalModel.(model)
+		}
 	}
 	
 	return nil
@@ -362,6 +391,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Step(`^the following Linear issues exist:$`, tc.theFollowingLinearIssuesExist)
 	ctx.Step(`^I start the Sprout TUI$`, tc.iStartTheSproutTUI)
 	ctx.Step(`^I press "([^"]*)"$`, tc.iPress)
+	ctx.Step(`^I type "([^"]*)"$`, tc.iType)
 	ctx.Step(`^the UI should display:$`, tc.theUIShouldDisplay)
 }
 
