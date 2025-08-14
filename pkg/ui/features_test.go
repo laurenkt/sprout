@@ -122,11 +122,29 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 		title := row.Cells[1].Value
 		parentID := row.Cells[2].Value
 		
+		// Default status if not provided in table
+		var status linear.State
+		if len(row.Cells) > 3 && row.Cells[3].Value != "" {
+			status = linear.State{
+				ID:   identifier + "-state",
+				Name: row.Cells[3].Value,
+				Type: strings.ToLower(strings.ReplaceAll(row.Cells[3].Value, " ", "_")),
+			}
+		} else {
+			// Default status for tests
+			status = linear.State{
+				ID:   identifier + "-state",
+				Name: "Todo",
+				Type: "todo",
+			}
+		}
+		
 		// Create issue with identifier as ID for simplicity in tests
 		issue := linear.Issue{
 			ID:          identifier,
 			Identifier:  identifier,
 			Title:       title,
+			State:       status,
 			HasChildren: false, // Will be set by FakeLinearClient
 			Expanded:    false,
 			Depth:       0,     // Will be set by UI based on hierarchy
