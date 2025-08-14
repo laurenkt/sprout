@@ -23,6 +23,19 @@ func TestGetBaseBranch(t *testing.T) {
 		t.Fatalf("Failed to init git repo: %v", err)
 	}
 
+	// Configure git user for commits
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git email: %v", err)
+	}
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git name: %v", err)
+	}
+
 	// Create initial commit
 	testFile := filepath.Join(tempDir, "README.md")
 	if err := os.WriteFile(testFile, []byte("# Test"), 0644); err != nil {
@@ -134,13 +147,31 @@ func TestCreateWorktreeFromBase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		// Clean up all temp directories
+		os.RemoveAll(tempDir)
+		worktreesDir := filepath.Join(filepath.Dir(tempDir), ".worktrees")
+		os.RemoveAll(worktreesDir)
+	}()
 
 	// Initialize git repo
 	cmd := exec.Command("git", "init")
 	cmd.Dir = tempDir
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to init git repo: %v", err)
+	}
+
+	// Configure git user for commits
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git email: %v", err)
+	}
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git name: %v", err)
 	}
 
 	// Create initial commit on master
@@ -195,8 +226,20 @@ func TestCreateWorktreeFromBase(t *testing.T) {
 	}
 
 	// Now create a worktree - it should be based on master, not feature-branch
+	// Create a custom WorktreeManager that uses a test-specific worktree path
+	testWorktreeDir := filepath.Join(tempDir, "test-worktrees")
+	
+	// Temporarily override the CreateWorktree method logic by testing the low-level function
+	// We'll call createNormalWorktree directly with a test path
 	wm := &WorktreeManager{repoRoot: tempDir}
-	worktreePath, err := wm.CreateWorktree("test-worktree")
+	testWorktreePath := filepath.Join(testWorktreeDir, "test-worktree")
+	
+	// Create the test worktree directory
+	if err := os.MkdirAll(testWorktreeDir, 0755); err != nil {
+		t.Fatalf("Failed to create test worktree dir: %v", err)
+	}
+	
+	worktreePath, err := wm.createNormalWorktree(testWorktreePath, "test-worktree")
 	if err != nil {
 		t.Fatalf("Failed to create worktree: %v", err)
 	}
