@@ -125,3 +125,52 @@ Feature: Sprout TUI Fuzzy Search
       ├──SPR-123  Add user authentication
       └──SPR-128  Update user profile settings
       """
+
+  Scenario: Backspace works in search mode
+    Given I start the Sprout TUI
+    And I press "/"
+    And I type "auth"
+    When I press "backspace"
+    Then the UI should display:
+      """
+      🌱 sprout
+
+      /aut
+      ├──SPR-123  Add user authentication
+      ├──SPR-127  Fix critical bug in payment processing
+      └──SPR-128  Update user profile settings
+      """
+    When I press "backspace"
+    Then the UI should display:
+      """
+      🌱 sprout
+
+      /au
+      ├──SPR-123  Add user authentication
+      ├──SPR-127  Fix critical bug in payment processing
+      └──SPR-128  Update user profile settings
+      """
+    When I press "backspace"
+    Then the UI should display:
+      """
+      🌱 sprout
+
+      /a
+      ├──SPR-123  Add user authentication
+      ├──SPR-124  Implement dashboard with analytics and reporting
+      ├──SPR-127  Fix critical bug in payment processing
+      ├──SPR-128  Update user profile settings
+      └──SPR-129  Implement notification system
+      """
+    When I press "backspace"
+    Then the UI should display:
+      """
+      🌱 sprout
+
+      /type to fuzzy search
+      ├──SPR-123  Add user authentication
+      ├──SPR-124  Implement dashboard with analytics and reporting
+      ├──SPR-127  Fix critical bug in payment processing
+      ├──SPR-128  Update user profile settings
+      └──SPR-129  Implement notification system
+      """
