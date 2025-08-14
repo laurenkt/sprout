@@ -45,6 +45,8 @@ type model struct {
 	SearchMode         bool   // true when in fuzzy search mode (triggered by /)
 	SearchQuery        string // current search query in search mode
 	FilteredIssues     []linear.Issue // filtered list of issues based on search
+	Width              int    // terminal width
+	Height             int    // terminal height
 }
 
 var (
@@ -160,7 +162,7 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 	ti.Placeholder = placeholder
 	ti.Focus()
 	ti.CharLimit = 156
-	ti.Width = 80
+	ti.Width = 80 // Will be updated in Update() when we get window size
 	ti.Prompt = prompt
 
 	// Style the text input
@@ -213,6 +215,8 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		SearchMode:         false,
 		SearchQuery:        "",
 		FilteredIssues:     nil,
+		Width:              80, // Default, will be updated when we get window size
+		Height:             24, // Default, will be updated when we get window size
 	}, nil
 }
 
@@ -242,6 +246,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.Width = msg.Width
+		m.Height = msg.Height
+		
+		// Update text input width to use most of the terminal width
+		// Leave some space for the prompt and margins
+		promptWidth := lipgloss.Width(m.TextInput.Prompt)
+		m.TextInput.Width = m.Width - promptWidth - 4 // 4 chars for margins
+		if m.TextInput.Width < 20 {
+			m.TextInput.Width = 20 // Minimum width
+		}
+		
+		return m, nil
+		
 	case tea.KeyMsg:
 		if m.Done {
 			return m, tea.Quit
@@ -991,9 +1009,24 @@ func (m model) buildSimpleLinearTree() string {
 func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	// Create the display content
 	title := issue.Title
-	if len(title) > 50 {
-		title = title[:47] + "..."
+	
+	// Calculate available width for title based on terminal size
+	// Account for: identifier, spaces, tree symbols, and margins
+	identifierWidth := lipgloss.Width(issue.Identifier)
+	treePrefixWidth := (issue.Depth + 1) * 3 // Approximate tree prefix width
+	marginWidth := 10 // Safety margin for tree symbols and spacing
+	availableWidth := m.Width - identifierWidth - treePrefixWidth - marginWidth
+	
+	// Ensure minimum width and truncate if necessary
+	if availableWidth < 20 {
+		availableWidth = 20
 	}
+	if len(title) > availableWidth {
+		if availableWidth > 3 {
+			title = title[:availableWidth-3] + "..."
+		}
+	}
+	
 	identifier := identifierStyle.Render(issue.Identifier)
 	titleText := titleStyle.Render(title)
 	content := fmt.Sprintf("%s  %s", identifier, titleText)
