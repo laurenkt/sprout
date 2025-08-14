@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 	
-	"sprout/pkg/cli"
+	"sprout/pkg/presentation/cli"
 )
 
 func main() {
