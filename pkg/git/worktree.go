@@ -72,7 +72,13 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 }
 
 func (wm *WorktreeManager) createNormalWorktree(worktreePath, branchName string) (string, error) {
-	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName)
+	// Determine the base branch (master or main)
+	baseBranch, err := wm.getBaseBranch()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine base branch: %w", err)
+	}
+
+	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName, baseBranch)
 	cmd.Dir = wm.repoRoot
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -86,8 +92,14 @@ func (wm *WorktreeManager) createNormalWorktree(worktreePath, branchName string)
 }
 
 func (wm *WorktreeManager) createSparseWorktree(worktreePath, branchName string, directories []string) (string, error) {
+	// Determine the base branch (master or main)
+	baseBranch, err := wm.getBaseBranch()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine base branch: %w", err)
+	}
+
 	// Create worktree without checkout
-	cmd := exec.Command("git", "worktree", "add", "--no-checkout", worktreePath, "-b", branchName)
+	cmd := exec.Command("git", "worktree", "add", "--no-checkout", worktreePath, "-b", branchName, baseBranch)
 	cmd.Dir = wm.repoRoot
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -277,6 +289,37 @@ func parseWorktreeList(output string) []Worktree {
 	}
 	
 	return worktrees
+}
+
+func (wm *WorktreeManager) getBaseBranch() (string, error) {
+	// Check if 'main' branch exists
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/main")
+	cmd.Dir = wm.repoRoot
+	if err := cmd.Run(); err == nil {
+		return "main", nil
+	}
+
+	// Check if 'master' branch exists
+	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/master")
+	cmd.Dir = wm.repoRoot
+	if err := cmd.Run(); err == nil {
+		return "master", nil
+	}
+
+	// Also check remote branches in case we haven't fetched yet
+	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/main")
+	cmd.Dir = wm.repoRoot
+	if err := cmd.Run(); err == nil {
+		return "origin/main", nil
+	}
+
+	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/master")
+	cmd.Dir = wm.repoRoot
+	if err := cmd.Run(); err == nil {
+		return "origin/master", nil
+	}
+
+	return "", fmt.Errorf("neither 'main' nor 'master' branch found")
 }
 
 func sanitizeBranchName(name string) string {
