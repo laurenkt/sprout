@@ -30,6 +30,38 @@ func NewTUITestContext(t *testing.T) *TUITestContext {
 	}
 }
 
+// CursorPosition represents the position of the cursor in the terminal
+type CursorPosition struct {
+	Row int
+	Col int
+}
+
+// extractCursorPosition finds and extracts cursor position from expected output
+// Returns the cleaned output (without █) and cursor position if found
+func extractCursorPosition(expected string) (string, *CursorPosition, error) {
+	const cursorChar = "█"
+	
+	lines := strings.Split(expected, "\n")
+	var cursorPos *CursorPosition
+	
+	for lineIdx, line := range lines {
+		if idx := strings.Index(line, cursorChar); idx != -1 {
+			if cursorPos != nil {
+				return "", nil, fmt.Errorf("multiple cursor positions found - only one █ character allowed")
+			}
+			cursorPos = &CursorPosition{
+				Row: lineIdx,
+				Col: idx,
+			}
+			// Remove the cursor character from this line
+			lines[lineIdx] = strings.Replace(line, cursorChar, "", 1)
+		}
+	}
+	
+	cleanedOutput := strings.Join(lines, "\n")
+	return cleanedOutput, cursorPos, nil
+}
+
 // StripANSI removes ANSI escape sequences from text
 func StripANSI(text string) string {
 	// Remove common ANSI sequences
@@ -192,12 +224,17 @@ func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
 		return fmt.Errorf("test model not initialized")
 	}
 	
+	// Extract cursor position from expected output if present
+	expectedContent, expectedCursorPos, err := extractCursorPosition(expected.Content)
+	if err != nil {
+		return fmt.Errorf("cursor position extraction error: %v", err)
+	}
+	
 	// Get current view from our model state instead of teatest output
 	actual := tc.model.View()
 	
 	// Strip ANSI codes for comparison
 	actual = StripANSI(actual)
-	expectedContent := expected.Content
 	
 	// Normalize whitespace more aggressively - strip leading and trailing whitespace from each line
 	actualLines := strings.Split(actual, "\n")
@@ -219,6 +256,68 @@ func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
 	
 	if actualNormalized != expectedNormalized {
 		return fmt.Errorf("UI output mismatch:\nExpected:\n%s\n\nActual:\n%s", expectedNormalized, actualNormalized)
+	}
+	
+	// Validate cursor position if specified
+	if expectedCursorPos != nil {
+		// Get actual cursor position from the text input model
+		// The cursor position depends on which input is focused and active
+		var actualCursorRow, actualCursorCol int
+		
+		if tc.model.InputMode && tc.model.TextInput.Focused() {
+			// Cursor is in the main text input (row 2, after header and blank line)
+			actualCursorRow = 2
+			actualCursorCol = len(tc.model.TextInput.Prompt) + tc.model.TextInput.Position()
+		} else if tc.model.SubtaskInputMode && tc.model.SubtaskInput.Focused() {
+			// Cursor is in subtask input - need to find its position in the tree
+			// For now, we'll implement a basic version
+			actualCursorRow = 2 // This would need more complex logic for subtask inputs
+			actualCursorCol = tc.model.SubtaskInput.Position()
+		} else {
+			// Cursor is on the selected item in the tree (non-input mode)
+			// For tree navigation, the cursor is typically not visible
+			// We'll skip cursor validation for non-input modes for now
+			return nil
+		}
+		
+		// Calculate the expected cursor position relative to the normalized output
+		// We need to account for the trimming we did above
+		originalLines := strings.Split(expected.Content, "\n")
+		normalizedLines := strings.Split(expectedNormalized, "\n")
+		
+		// Find how many lines were trimmed from the top
+		trimmedFromTop := 0
+		for i, line := range originalLines {
+			if strings.TrimSpace(line) != "" {
+				break
+			}
+			if i < len(originalLines)-1 {
+				trimmedFromTop++
+			}
+		}
+		
+		// Adjust expected cursor position for trimmed lines
+		adjustedExpectedRow := expectedCursorPos.Row - trimmedFromTop
+		
+		// For column position, we need to account for leading whitespace that was trimmed
+		var adjustedExpectedCol int
+		if adjustedExpectedRow >= 0 && adjustedExpectedRow < len(normalizedLines) {
+			originalLine := originalLines[expectedCursorPos.Row]
+			normalizedLine := normalizedLines[adjustedExpectedRow]
+			
+			// Calculate how much leading whitespace was trimmed
+			leadingSpacesTrimmed := len(originalLine) - len(strings.TrimLeft(originalLine, " \t"))
+			normalizedLeadingSpaces := len(normalizedLine) - len(strings.TrimLeft(normalizedLine, " \t"))
+			
+			adjustedExpectedCol = expectedCursorPos.Col - leadingSpacesTrimmed + normalizedLeadingSpaces
+		} else {
+			adjustedExpectedCol = expectedCursorPos.Col
+		}
+		
+		if actualCursorRow != adjustedExpectedRow || actualCursorCol != adjustedExpectedCol {
+			return fmt.Errorf("cursor position mismatch:\nExpected: row=%d, col=%d\nActual: row=%d, col=%d", 
+				adjustedExpectedRow, adjustedExpectedCol, actualCursorRow, actualCursorCol)
+		}
 	}
 	
 	return nil
