@@ -530,6 +530,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 			
+		case tea.KeyBackspace:
+			// Handle backspace in search mode
+			if m.SearchMode && !m.Submitted && !m.SubtaskInputMode {
+				// Let the text input handle the backspace
+				m.TextInput, cmd = m.TextInput.Update(msg)
+				// Extract search query (remove the leading "/")
+				value := m.TextInput.Value()
+				if strings.HasPrefix(value, "/") {
+					m.SearchQuery = value[1:]
+				} else {
+					m.SearchQuery = value
+				}
+				// Update filtered issues
+				m.FilteredIssues = m.filterIssuesBySearch(m.SearchQuery)
+				return m, cmd
+			}
+			
 		case tea.KeyRunes:
 			// Handle "/" key to enter search mode
 			if !m.Submitted && !m.SubtaskInputMode && len(msg.Runes) == 1 && msg.Runes[0] == '/' {

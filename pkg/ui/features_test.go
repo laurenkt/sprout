@@ -209,6 +209,8 @@ func (tc *TUITestContext) iPress(key string) error {
 		keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
 	case "/":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	case "backspace":
+		keyMsg = tea.KeyMsg{Type: tea.KeyBackspace}
 	default:
 		return fmt.Errorf("unknown key: %s", key)
 	}
