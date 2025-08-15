@@ -24,7 +24,7 @@ Feature: Sprout duplicate issue handling
 
       > sprout/tick-1-parent-task
       └──TICK-1  In Progress  Parent Task
-         ├──TICK-2  Todo  Child Task
+         ├──TICK-2  Todo         Child Task
          └──+ Add subtask
       """
 
