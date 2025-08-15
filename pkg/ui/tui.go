@@ -117,6 +117,18 @@ var (
 			MarginTop(1)
 )
 
+// getStatusColor returns the color for a given Linear issue status
+func getStatusColor(statusName string) lipgloss.Color {
+	switch strings.ToLower(statusName) {
+	case "blocked":
+		return errorColor // Red
+	case "in review":
+		return accentColor // Green
+	default:
+		return secondaryColor // Gray for other statuses
+	}
+}
+
 func NewTUI() (model, error) {
 	wm, err := git.NewWorktreeManager()
 	if err != nil {
@@ -1075,12 +1087,26 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	identifier := identifierStyle.Render(issue.Identifier)
 	titleText := titleStyle.Render(title)
 	
+	// Add status with color if available
+	var statusText string
+	if issue.State.Name != "" {
+		statusColor := getStatusColor(issue.State.Name)
+		statusStyle := lipgloss.NewStyle().Foreground(statusColor)
+		statusText = statusStyle.Render(fmt.Sprintf("[%s]", issue.State.Name))
+	}
+	
 	// Pad identifier to align with the longest identifier
 	identifierWidth = lipgloss.Width(identifier)
 	padding := m.MaxIdentifierWidth - identifierWidth
 	paddedIdentifier := identifier + strings.Repeat(" ", padding)
 	
-	content := fmt.Sprintf("%s  %s", paddedIdentifier, titleText)
+	// Build content with status
+	var content string
+	if statusText != "" {
+		content = fmt.Sprintf("%s  %s %s", paddedIdentifier, statusText, titleText)
+	} else {
+		content = fmt.Sprintf("%s  %s", paddedIdentifier, titleText)
+	}
 
 	// Apply selection styling if this is the selected item
 	if m.SelectedIssue != nil && m.SelectedIssue.ID == issue.ID {
