@@ -197,6 +197,9 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 					priority
 					createdAt
 					updatedAt
+					parent {
+						id
+					}
 					state {
 						id
 						name
@@ -227,6 +230,9 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 		Issues struct {
 			Nodes []struct {
 				Issue
+				Parent *struct {
+					ID string `json:"id"`
+				} `json:"parent"`
 				Children struct {
 					Nodes []struct {
 						ID string `json:"id"`
@@ -240,16 +246,44 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 		return nil, fmt.Errorf("failed to unmarshal issues data: %w", err)
 	}
 
-	issues := make([]Issue, len(result.Issues.Nodes))
-	for i, node := range result.Issues.Nodes {
-		issues[i] = node.Issue
-		issues[i].HasChildren = len(node.Children.Nodes) > 0
-		issues[i].Depth = 0
-		issues[i].Expanded = false
-		issues[i].Parent = nil // Explicitly set parent to nil for root issues
+	// First pass: collect all issues and build a map by ID, preserving order
+	allIssues := make(map[string]Issue)
+	issueParents := make(map[string]string) // childID -> parentID
+	var issueOrder []string // preserve the order from API response
+	
+	for _, node := range result.Issues.Nodes {
+		issue := node.Issue
+		issue.HasChildren = len(node.Children.Nodes) > 0
+		issue.Depth = 0
+		issue.Expanded = false
+		issue.Parent = nil
+		
+		allIssues[issue.ID] = issue
+		issueOrder = append(issueOrder, issue.ID)
+		
+		// Track parent relationship if this issue has a parent
+		if node.Parent != nil {
+			issueParents[issue.ID] = node.Parent.ID
+		}
+	}
+	
+	// Second pass: filter out issues whose parents are also in the assigned list
+	// Process in order to maintain consistent results
+	var filteredIssues []Issue
+	
+	for _, issueID := range issueOrder {
+		issue := allIssues[issueID]
+		parentID, hasParent := issueParents[issueID]
+		
+		// If this issue has no parent, or its parent is not in our assigned issues,
+		// then include it as a top-level issue
+		if !hasParent || allIssues[parentID].ID == "" {
+			filteredIssues = append(filteredIssues, issue)
+		}
+		// Otherwise, skip this issue as it will appear under its parent when expanded
 	}
 
-	return issues, nil
+	return filteredIssues, nil
 }
 
 // GetIssueChildren fetches children/sub-issues for a given issue ID
@@ -551,22 +585,71 @@ func (f *FakeLinearClient) GetCurrentUser() (*User, error) {
 }
 
 // GetAssignedIssues returns top-level issues (simulating API behavior)
+// This now filters out child issues whose parents are also assigned, matching the real API behavior
 func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
-	issues := make([]Issue, 0, len(f.topLevelIssues))
+	// Collect all issues that would be assigned to the user
+	allAssignedIssues := make(map[string]Issue)
+	issueParents := make(map[string]string) // childID -> parentID
 	
+	// Add all top-level issues (in order to maintain consistent ordering)
 	for _, issueID := range f.topLevelIssues {
 		if issue, exists := f.issues[issueID]; exists {
-			// Set HasChildren based on whether this issue has children
-			_, hasChildren := f.childrenMap[issueID]
-			issue.HasChildren = hasChildren
-			issue.Depth = 0
-			issue.Expanded = false
-			issue.Parent = nil // Explicitly set parent to nil for root issues
-			issues = append(issues, issue)
+			allAssignedIssues[issueID] = issue
 		}
 	}
 	
-	return issues, nil
+	// Add all child issues (simulating that they might also be assigned)
+	for parentID, childIDs := range f.childrenMap {
+		for _, childID := range childIDs {
+			if child, exists := f.issues[childID]; exists {
+				allAssignedIssues[childID] = child
+				issueParents[childID] = parentID
+			}
+		}
+	}
+	
+	// Now filter out issues whose parents are also in the assigned list
+	// Process top-level issues in order to maintain consistent ordering
+	var filteredIssues []Issue
+	
+	// First, add all top-level issues that don't have parents in the assigned list
+	for _, issueID := range f.topLevelIssues {
+		if issue, exists := allAssignedIssues[issueID]; exists {
+			parentID, hasParent := issueParents[issueID]
+			
+			// If this issue has no parent, or its parent is not in our assigned issues,
+			// then include it as a top-level issue
+			if !hasParent || allAssignedIssues[parentID].ID == "" {
+				// Set HasChildren based on whether this issue has children
+				_, hasChildren := f.childrenMap[issueID]
+				issue.HasChildren = hasChildren
+				issue.Depth = 0
+				issue.Expanded = false
+				issue.Parent = nil // Explicitly set parent to nil for root issues
+				filteredIssues = append(filteredIssues, issue)
+			}
+		}
+	}
+	
+	// Then, check if any child issues should be promoted to top-level
+	// (when their parents are not assigned)
+	for parentID, childIDs := range f.childrenMap {
+		if _, parentAssigned := allAssignedIssues[parentID]; !parentAssigned {
+			// Parent not assigned, promote children to top-level
+			for _, childID := range childIDs {
+				if child, exists := allAssignedIssues[childID]; exists {
+					_, hasChildren := f.childrenMap[childID]
+					child.HasChildren = hasChildren
+					child.Depth = 0
+					child.Expanded = false
+					child.Parent = nil
+					filteredIssues = append(filteredIssues, child)
+				}
+			}
+		}
+	}
+	
+	return filteredIssues, nil
 }
 
 // GetIssueChildren returns children for a given issue ID

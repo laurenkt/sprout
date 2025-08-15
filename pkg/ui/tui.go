@@ -101,6 +101,10 @@ var (
 	titleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
 
+	// Issue status style
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("242"))
+
 	// Add subtask style
 	addSubtaskStyle = lipgloss.NewStyle().
 			Foreground(accentColor).
@@ -1104,7 +1108,6 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	
 	// Calculate available width for title based on terminal size
 	// Account for: identifier, status, spaces, tree symbols, and margins
-	identifierWidth := lipgloss.Width(issue.Identifier)
 	statusWidth := lipgloss.Width(statusText)
 	treePrefixWidth := (issue.Depth + 1) * 3 // Approximate tree prefix width
 	marginWidth := 15 // Safety margin for tree symbols, spacing, and status padding
@@ -1124,12 +1127,10 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	titleText := titleStyle.Render(title)
 	
 	// Pad identifier to align with the longest identifier
-	identifierWidth = lipgloss.Width(identifier)
-	identifierPadding := m.MaxIdentifierWidth - identifierWidth
+	identifierPadding := m.MaxIdentifierWidth - lipgloss.Width(identifier)
 	paddedIdentifier := identifier + strings.Repeat(" ", identifierPadding)
 	
 	// Pad status to align with the longest status
-	statusWidth = lipgloss.Width(statusText)
 	statusPadding := m.MaxStatusWidth - statusWidth
 	paddedStatus := styledStatus + strings.Repeat(" ", statusPadding)
 	
