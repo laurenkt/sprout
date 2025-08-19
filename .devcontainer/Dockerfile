@@ -51,12 +51,13 @@ RUN mkdir -p /workspace /home/node/.claude && \
 
 WORKDIR /workspace
 
-# Install Claude Code
+# Install Claude Code to /usr/local/bin
 RUN if [ "$CLAUDE_CODE_VERSION" = "latest" ]; then \
-    curl -fsSL https://github.com/anthropics/claude-code/releases/latest/download/install.sh | sh; \
+    curl -fsSL https://github.com/anthropics/claude-code/releases/latest/download/install.sh | sh -s -- --install-dir /usr/local/bin; \
   else \
-    curl -fsSL https://github.com/anthropics/claude-code/releases/download/v${CLAUDE_CODE_VERSION}/install.sh | sh; \
-  fi
+    curl -fsSL https://github.com/anthropics/claude-code/releases/download/v${CLAUDE_CODE_VERSION}/install.sh | sh -s -- --install-dir /usr/local/bin; \
+  fi \
+  && chmod 755 /usr/local/bin/claude
 
 # Install Go tools
 RUN go install -v golang.org/x/tools/gopls@latest \
@@ -67,7 +68,13 @@ RUN go install -v golang.org/x/tools/gopls@latest \
 # Switch to node user
 USER node
 
+# Ensure PATH includes Claude Code
+ENV PATH="/usr/local/bin:$PATH"
+
 # Configure git delta
 RUN git config --global core.pager delta \
   && git config --global interactive.diffFilter "delta --color-only" \
   && git config --global delta.light false
+
+# Verify Claude Code installation
+RUN claude --version || echo "Claude Code not found in PATH"
