@@ -11,27 +11,64 @@ import (
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
+	"sprout/pkg/git"
 	"sprout/pkg/linear"
 )
 
 // TUITestContext holds the state for our Gherkin tests
 type TUITestContext struct {
-	model          model
-	testModel      *teatest.TestModel
-	fakeClient     *linear.FakeLinearClient
-	t              *testing.T
-	terminalWidth  int
-	terminalHeight int
+	model               model
+	testModel           *teatest.TestModel
+	fakeClient          *linear.FakeLinearClient
+	fakeWorktreeManager *testWorktreeManager
+	t                   *testing.T
+	terminalWidth       int
+	terminalHeight      int
 }
 
 // NewTUITestContext creates a new test context
 func NewTUITestContext(t *testing.T) *TUITestContext {
 	return &TUITestContext{
-		fakeClient:     linear.NewFakeLinearClient(),
-		t:              t,
-		terminalWidth:  80, // Default width
-		terminalHeight: 24, // Default height
+		fakeClient:          linear.NewFakeLinearClient(),
+		fakeWorktreeManager: &testWorktreeManager{},
+		t:                   t,
+		terminalWidth:       80, // Default width
+		terminalHeight:      24, // Default height
 	}
+}
+
+// testWorktreeManager is a lightweight implementation for exercising the TUI
+type testWorktreeManager struct {
+	lastCreatedWorktree string
+	lastCreatedBranch   string
+}
+
+func (m *testWorktreeManager) CreateWorktree(branchName string) (string, error) {
+	if branchName == "" {
+		return "", fmt.Errorf("branch name required")
+	}
+	m.lastCreatedWorktree = branchName
+	return "/mock/worktrees/" + branchName, nil
+}
+
+func (m *testWorktreeManager) CreateBranch(branchName string) error {
+	if branchName == "" {
+		return fmt.Errorf("branch name required")
+	}
+	m.lastCreatedBranch = branchName
+	return nil
+}
+
+func (m *testWorktreeManager) ListWorktrees() ([]git.Worktree, error) {
+	return nil, nil
+}
+
+func (m *testWorktreeManager) PruneWorktree(branchName string) error {
+	return nil
+}
+
+func (m *testWorktreeManager) PruneAllMerged() error {
+	return nil
 }
 
 // CursorPosition represents the position of the cursor in the terminal
@@ -162,9 +199,9 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
 
-	// Create test model with fake client
+	// Create test model with fake client and worktree manager stub
 	var err error
-	tc.model, err = NewTUIWithDependencies(nil, tc.fakeClient)
+	tc.model, err = NewTUIWithDependencies(tc.fakeWorktreeManager, tc.fakeClient)
 	if err != nil {
 		return err
 	}
