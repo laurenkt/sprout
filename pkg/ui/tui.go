@@ -1036,13 +1036,6 @@ func (m model) View() string {
 
 	s := strings.Builder{}
 	s.WriteString(headerStyle.Render("🌱 sprout"))
-	s.WriteString("\n")
-
-	modeText := "Mode: create worktree (Tab to toggle)"
-	if m.CreationMode == creationModeBranchOnly {
-		modeText = "Mode: create branch only (Tab to toggle)"
-	}
-	s.WriteString(helpStyle.Render(modeText))
 	s.WriteString("\n\n")
 
 	// Input using textinput component - adjust prompt style based on selection and display search mode appropriately
@@ -1091,6 +1084,14 @@ func (m model) View() string {
 			s.WriteString(treeView)
 		}
 	}
+
+	// Display creation mode toggle at the bottom
+	s.WriteString("\n")
+	modeLabel := "[worktree <tab>]"
+	if m.CreationMode == creationModeBranchOnly {
+		modeLabel = "[branch <tab>]"
+	}
+	s.WriteString(helpStyle.Render(modeLabel))
 
 	return s.String()
 }

@@ -20,7 +20,6 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /type to fuzzy search
       ├──SPR-123  Todo         Add user authentication
@@ -28,6 +27,7 @@ Feature: Sprout TUI Fuzzy Search
       ├──SPR-127  In Review    Fix critical bug in payment processing
       ├──SPR-128  Backlog      Update user profile settings
       └──SPR-129  Todo         Implement notification system
+      [worktree <tab>]
       """
 
   Scenario: Filter issues by typing partial text
@@ -37,10 +37,10 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /auth
       └──SPR-123  Todo  Add user authentication
+      [worktree <tab>]
       """
 
   Scenario: Filter issues by identifier
@@ -50,10 +50,10 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /127
       └──SPR-127  In Review  Fix critical bug in payment processing
+      [worktree <tab>]
       """
 
   Scenario: Filter shows multiple matches
@@ -63,11 +63,11 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /user
       ├──SPR-123  Todo     Add user authentication
       └──SPR-128  Backlog  Update user profile settings
+      [worktree <tab>]
       """
 
   Scenario: No matches found
@@ -77,9 +77,9 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /xyz
+      [worktree <tab>]
       """
 
   Scenario: Clear search and return to normal mode
@@ -90,7 +90,6 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       > sprout/enter branch name or select suggestion below
       ├──SPR-123  Todo         Add user authentication
@@ -98,6 +97,7 @@ Feature: Sprout TUI Fuzzy Search
       ├──SPR-127  In Review    Fix critical bug in payment processing
       ├──SPR-128  Backlog      Update user profile settings
       └──SPR-129  Todo         Implement notification system
+      [worktree <tab>]
       """
 
   Scenario: Navigate search results with arrow keys
@@ -108,31 +108,31 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /user sprout/spr-123-add-user-authentication
       ├──SPR-123  Todo     Add user authentication
       └──SPR-128  Backlog  Update user profile settings
+      [worktree <tab>]
       """
     When I press "down"
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /user sprout/spr-128-update-user-profile-settings
       ├──SPR-123  Todo     Add user authentication
       └──SPR-128  Backlog  Update user profile settings
+      [worktree <tab>]
       """
     When I press "up"
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /user sprout/spr-123-add-user-authentication
       ├──SPR-123  Todo     Add user authentication
       └──SPR-128  Backlog  Update user profile settings
+      [worktree <tab>]
       """
 
   Scenario: Backspace works in search mode
@@ -143,29 +143,28 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /aut
       ├──SPR-123  Todo       Add user authentication
       ├──SPR-127  In Review  Fix critical bug in payment processing
       └──SPR-128  Backlog    Update user profile settings
+      [worktree <tab>]
       """
     When I press "backspace"
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /au
       ├──SPR-123  Todo       Add user authentication
       ├──SPR-127  In Review  Fix critical bug in payment processing
       └──SPR-128  Backlog    Update user profile settings
+      [worktree <tab>]
       """
     When I press "backspace"
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /a
       ├──SPR-123  Todo         Add user authentication
@@ -173,12 +172,12 @@ Feature: Sprout TUI Fuzzy Search
       ├──SPR-127  In Review    Fix critical bug in payment processing
       ├──SPR-128  Backlog      Update user profile settings
       └──SPR-129  Todo         Implement notification system
+      [worktree <tab>]
       """
     When I press "backspace"
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       /type to fuzzy search
       ├──SPR-123  Todo         Add user authentication
@@ -186,4 +185,5 @@ Feature: Sprout TUI Fuzzy Search
       ├──SPR-127  In Review    Fix critical bug in payment processing
       ├──SPR-128  Backlog      Update user profile settings
       └──SPR-129  Todo         Implement notification system
+      [worktree <tab>]
       """

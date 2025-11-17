@@ -18,29 +18,28 @@ Feature: Sprout TUI Tree Expansion
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       > sprout/enter branch name or select suggestion below
       ├──SPR-100  In Progress  Feature A: User management system
       ├──SPR-200  Todo         Feature B: Dashboard and analytics
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
     When I press "down"
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-100-feature-a-user-management-system
       ├──SPR-100  In Progress  Feature A: User management system
       ├──SPR-200  Todo         Feature B: Dashboard and analytics
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
     When I press "right"
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-100-feature-a-user-management-system
       ├──SPR-100  In Progress  Feature A: User management system
@@ -49,6 +48,7 @@ Feature: Sprout TUI Tree Expansion
       │  └──+ Add subtask
       ├──SPR-200  Todo         Feature B: Dashboard and analytics
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
     When I press "down"
     And I press "down"
@@ -57,7 +57,6 @@ Feature: Sprout TUI Tree Expansion
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  In Progress  Feature A: User management system
@@ -66,12 +65,12 @@ Feature: Sprout TUI Tree Expansion
       │  └──+ Add subtask
       ├──SPR-200  Todo         Feature B: Dashboard and analytics
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
     When I press "right"
     Then the UI should display:
       """
       🌱 sprout
-      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  In Progress  Feature A: User management system
@@ -84,4 +83,5 @@ Feature: Sprout TUI Tree Expansion
       │  ├──SPR-203  Backlog      Implement data visualization
       │  └──+ Add subtask
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
