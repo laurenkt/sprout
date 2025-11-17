@@ -71,8 +71,7 @@ var (
 	// Header style
 	headerStyle = lipgloss.NewStyle().
 			Foreground(primaryColor).
-			Bold(true).
-			MarginBottom(1)
+			Bold(true)
 
 	// Selected item style - subtle highlight
 	selectedStyle = lipgloss.NewStyle().
@@ -141,8 +140,7 @@ var (
 	// Help text style
 	helpStyle = lipgloss.NewStyle().
 			Foreground(secondaryColor).
-			Italic(true).
-			MarginTop(1)
+			Italic(true)
 )
 
 func NewTUI() (model, error) {
@@ -438,6 +436,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.InputMode = true
 						m.TextInput.Focus()
 						m.TextInput.Placeholder = m.DefaultPlaceholder
+						m.CreationMode = creationModeBranchOnly
 					}
 				}
 			}
@@ -1081,12 +1080,18 @@ func (m model) View() string {
 			s.WriteString(helpStyle.Render("No assigned tickets found"))
 		} else {
 			treeView := m.buildSimpleLinearTree()
-			s.WriteString(treeView)
+			if treeView != "" {
+				trimmedTree := strings.TrimRight(treeView, "\n")
+				s.WriteString(trimmedTree)
+				s.WriteString("\n")
+			}
 		}
 	}
 
-	// Display creation mode toggle at the bottom
-	s.WriteString("\n")
+	// Display creation mode toggle at the bottom, ensuring we only add a newline if needed
+	if !strings.HasSuffix(s.String(), "\n") {
+		s.WriteString("\n")
+	}
 	modeLabel := "[worktree <tab>]"
 	if m.CreationMode == creationModeBranchOnly {
 		modeLabel = "[branch <tab>]"

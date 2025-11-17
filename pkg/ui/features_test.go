@@ -277,13 +277,7 @@ func (tc *TUITestContext) iPress(key string) error {
 	updatedModel, cmd := tc.model.Update(keyMsg)
 	tc.model = updatedModel.(model)
 
-	// Execute the returned command if there is one
-	if cmd != nil {
-		msg := cmd()
-		// Process the command result
-		finalModel, _ := tc.model.Update(msg)
-		tc.model = finalModel.(model)
-	}
+	tc.processCmd(cmd)
 
 	return nil
 }
@@ -301,16 +295,38 @@ func (tc *TUITestContext) iType(text string) error {
 		updatedModel, cmd := tc.model.Update(keyMsg)
 		tc.model = updatedModel.(model)
 
-		// Execute the returned command if there is one
-		if cmd != nil {
-			msg := cmd()
-			// Process the command result
-			finalModel, _ := tc.model.Update(msg)
-			tc.model = finalModel.(model)
-		}
+		tc.processCmd(cmd)
 	}
 
 	return nil
+}
+
+// processCmd executes a command and handles any resulting messages (including batches)
+func (tc *TUITestContext) processCmd(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	tc.processMsg(cmd())
+}
+
+// processMsg updates the model with a message and processes any follow-up commands
+func (tc *TUITestContext) processMsg(msg tea.Msg) {
+	if msg == nil {
+		return
+	}
+
+	switch m := msg.(type) {
+	case tea.BatchMsg:
+		for _, subMsg := range m {
+			tc.processMsg(subMsg)
+		}
+	case tea.Cmd:
+		tc.processCmd(m)
+		return
+	}
+
+	updatedModel, _ := tc.model.Update(msg)
+	tc.model = updatedModel.(model)
 }
 
 func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
@@ -359,8 +375,19 @@ func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
 		var actualCursorRow, actualCursorCol int
 
 		if tc.model.InputMode && tc.model.TextInput.Focused() {
-			// Cursor is in the main text input (row 3, after header, mode line, and blank line)
-			actualCursorRow = 3
+			// Cursor is in the main text input - find its row dynamically
+			inputLine := strings.TrimSpace(tc.model.TextInput.View())
+			actualCursorRow = -1
+			for idx, line := range actualLines {
+				if line == inputLine {
+					actualCursorRow = idx
+					break
+				}
+			}
+			if actualCursorRow == -1 {
+				// Fallback to 0 if we can't find the line
+				actualCursorRow = 0
+			}
 			actualCursorCol = len(tc.model.TextInput.Prompt) + tc.model.TextInput.Position()
 		} else if tc.model.SubtaskInputMode && tc.model.SubtaskInput.Focused() {
 			// Cursor is in subtask input - need to find its position in the tree
@@ -474,13 +501,12 @@ func (tc *TUITestContext) theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidt
 
 // InitializeScenario initializes godog with our step definitions
 func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
-	tc := &TUITestContext{
-		t: t,
-	}
+	tc := NewTUITestContext(t)
 
 	// Setup a test context for each scenario
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 		tc.fakeClient = linear.NewFakeLinearClient()
+		tc.fakeWorktreeManager = &testWorktreeManager{}
 		tc.t = t              // Ensure t is set for each scenario
 		tc.terminalWidth = 80 // Reset to default
 		tc.terminalHeight = 24

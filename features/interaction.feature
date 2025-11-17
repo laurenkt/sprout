@@ -48,7 +48,7 @@ Feature: Sprout TUI Interaction
       ├──SPR-123  Todo         Add user authentication
       ├──SPR-124  In Progress  Implement dashboard with analytics and re...
       └──SPR-127  Done         Fix critical bug in payment processing
-      [worktree <tab>]
+      [branch <tab>]
       """
 
   Scenario: Create a branch after toggling mode
