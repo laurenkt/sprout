@@ -18,6 +18,7 @@ Feature: Sprout TUI Tree Expansion
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/enter branch name or select suggestion below
       ├──SPR-100  In Progress  Feature A: User management system
@@ -28,6 +29,7 @@ Feature: Sprout TUI Tree Expansion
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-100-feature-a-user-management-system
       ├──SPR-100  In Progress  Feature A: User management system
@@ -38,6 +40,7 @@ Feature: Sprout TUI Tree Expansion
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-100-feature-a-user-management-system
       ├──SPR-100  In Progress  Feature A: User management system
@@ -54,6 +57,7 @@ Feature: Sprout TUI Tree Expansion
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  In Progress  Feature A: User management system
@@ -67,6 +71,7 @@ Feature: Sprout TUI Tree Expansion
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  In Progress  Feature A: User management system

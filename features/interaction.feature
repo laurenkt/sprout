@@ -18,6 +18,7 @@ Feature: Sprout TUI Interaction
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/spr-123-add-user-authentication█
       ├──SPR-123  Todo         Add user authentication
@@ -28,6 +29,21 @@ Feature: Sprout TUI Interaction
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
+
+      > sprout/█enter branch name or select suggestion below
+      ├──SPR-123  Todo         Add user authentication
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      └──SPR-127  Done         Fix critical bug in payment processing
+      """
+
+  Scenario: Toggle between worktree and branch mode
+    Given I start the Sprout TUI
+    When I press "tab"
+    Then the UI should display:
+      """
+      🌱 sprout
+      Mode: create branch only (Tab to toggle)
 
       > sprout/█enter branch name or select suggestion below
       ├──SPR-123  Todo         Add user authentication

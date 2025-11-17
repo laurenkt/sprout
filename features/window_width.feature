@@ -16,6 +16,7 @@ Feature: Window Width Responsive Layout
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/enter branch name or select suggestion below
       ├──SPR-123  Todo         Add user authentication

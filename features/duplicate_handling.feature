@@ -12,6 +12,7 @@ Feature: Sprout duplicate issue handling
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/enter branch name or select suggestion below
       └──TICK-1  In Progress  Parent Task
@@ -21,6 +22,7 @@ Feature: Sprout duplicate issue handling
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/tick-1-parent-task
       └──TICK-1  In Progress  Parent Task
@@ -39,6 +41,7 @@ Feature: Sprout duplicate issue handling
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/enter branch name or select suggestion below
       ├──TICK-1  In Progress  Parent Task

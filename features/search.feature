@@ -20,6 +20,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /type to fuzzy search
       ├──SPR-123  Todo         Add user authentication
@@ -36,6 +37,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /auth
       └──SPR-123  Todo  Add user authentication
@@ -48,6 +50,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /127
       └──SPR-127  In Review  Fix critical bug in payment processing
@@ -60,6 +63,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /user
       ├──SPR-123  Todo     Add user authentication
@@ -73,6 +77,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /xyz
       """
@@ -85,6 +90,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       > sprout/enter branch name or select suggestion below
       ├──SPR-123  Todo         Add user authentication
@@ -102,6 +108,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /user sprout/spr-123-add-user-authentication
       ├──SPR-123  Todo     Add user authentication
@@ -111,6 +118,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /user sprout/spr-128-update-user-profile-settings
       ├──SPR-123  Todo     Add user authentication
@@ -120,6 +128,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /user sprout/spr-123-add-user-authentication
       ├──SPR-123  Todo     Add user authentication
@@ -134,6 +143,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /aut
       ├──SPR-123  Todo       Add user authentication
@@ -144,6 +154,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /au
       ├──SPR-123  Todo       Add user authentication
@@ -154,6 +165,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /a
       ├──SPR-123  Todo         Add user authentication
@@ -166,6 +178,7 @@ Feature: Sprout TUI Fuzzy Search
     Then the UI should display:
       """
       🌱 sprout
+      Mode: create worktree (Tab to toggle)
 
       /type to fuzzy search
       ├──SPR-123  Todo         Add user authentication

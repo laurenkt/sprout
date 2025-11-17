@@ -29,8 +29,8 @@ func NewTUITestContext(t *testing.T) *TUITestContext {
 	return &TUITestContext{
 		fakeClient:     linear.NewFakeLinearClient(),
 		t:              t,
-		terminalWidth:  80,  // Default width
-		terminalHeight: 24,  // Default height
+		terminalWidth:  80, // Default width
+		terminalHeight: 24, // Default height
 	}
 }
 
@@ -44,10 +44,10 @@ type CursorPosition struct {
 // Returns the cleaned output (without █) and cursor position if found
 func extractCursorPosition(expected string) (string, *CursorPosition, error) {
 	const cursorChar = "█"
-	
+
 	lines := strings.Split(expected, "\n")
 	var cursorPos *CursorPosition
-	
+
 	for lineIdx, line := range lines {
 		if idx := strings.Index(line, cursorChar); idx != -1 {
 			if cursorPos != nil {
@@ -61,7 +61,7 @@ func extractCursorPosition(expected string) (string, *CursorPosition, error) {
 			lines[lineIdx] = strings.Replace(line, cursorChar, "", 1)
 		}
 	}
-	
+
 	cleanedOutput := strings.Join(lines, "\n")
 	return cleanedOutput, cursorPos, nil
 }
@@ -70,15 +70,15 @@ func extractCursorPosition(expected string) (string, *CursorPosition, error) {
 func StripANSI(text string) string {
 	// Remove common ANSI sequences
 	replacements := []string{
-		"\x1b[?25l",    // Hide cursor
-		"\x1b[?25h",    // Show cursor
-		"\x1b[?2004h",  // Enable bracketed paste
-		"\x1b[?2004l",  // Disable bracketed paste
-		"\x1b[?1002l",  // Disable mouse tracking
-		"\x1b[?1003l",  // Disable mouse tracking
-		"\x1b[?1006l",  // Disable mouse tracking
-		"\x1b[K",       // Clear to end of line
-		"\x1b[2K",      // Clear entire line
+		"\x1b[?25l",   // Hide cursor
+		"\x1b[?25h",   // Show cursor
+		"\x1b[?2004h", // Enable bracketed paste
+		"\x1b[?2004l", // Disable bracketed paste
+		"\x1b[?1002l", // Disable mouse tracking
+		"\x1b[?1003l", // Disable mouse tracking
+		"\x1b[?1006l", // Disable mouse tracking
+		"\x1b[K",      // Clear to end of line
+		"\x1b[2K",     // Clear entire line
 	}
 
 	result := text
@@ -111,17 +111,17 @@ func StripANSI(text string) string {
 func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table) error {
 	// Clear any existing data
 	tc.fakeClient = linear.NewFakeLinearClient()
-	
+
 	// Parse table and populate fake client
 	for i, row := range issueTable.Rows {
 		if i == 0 { // Skip header row
 			continue
 		}
-		
+
 		identifier := row.Cells[0].Value
 		title := row.Cells[1].Value
 		parentID := row.Cells[2].Value
-		
+
 		// Default status if not provided in table
 		var status linear.State
 		if len(row.Cells) > 3 && row.Cells[3].Value != "" {
@@ -138,7 +138,7 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 				Type: "todo",
 			}
 		}
-		
+
 		// Create issue with identifier as ID for simplicity in tests
 		issue := linear.Issue{
 			ID:          identifier,
@@ -147,42 +147,40 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 			State:       status,
 			HasChildren: false, // Will be set by FakeLinearClient
 			Expanded:    false,
-			Depth:       0,     // Will be set by UI based on hierarchy
+			Depth:       0,                // Will be set by UI based on hierarchy
 			Children:    []linear.Issue{}, // Not used in fake client
 		}
-		
+
 		// Add to fake client (it handles parent-child relationships)
 		tc.fakeClient.AddIssue(issue, parentID)
 	}
-	
+
 	return nil
 }
-
-
 
 func (tc *TUITestContext) iStartTheSproutTUI() error {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
-	
+
 	// Create test model with fake client
 	var err error
 	tc.model, err = NewTUIWithDependencies(nil, tc.fakeClient)
 	if err != nil {
 		return err
 	}
-	
+
 	// Manually execute the initialization to trigger loading
 	tc.executeInitialization()
-	
+
 	if tc.t != nil {
 		tc.testModel = teatest.NewTestModel(tc.t, tc.model, teatest.WithInitialTermSize(tc.terminalWidth, tc.terminalHeight))
-		
+
 		// Send window size message to the model to set up responsive layout
 		windowSizeMsg := tea.WindowSizeMsg{Width: tc.terminalWidth, Height: tc.terminalHeight}
 		updatedModel, _ := tc.model.Update(windowSizeMsg)
 		tc.model = updatedModel.(model)
 	}
-	
+
 	return nil
 }
 
@@ -192,24 +190,23 @@ func (tc *TUITestContext) executeInitialization() {
 	if tc.model.LinearClient != nil && tc.model.LinearLoading {
 		// Simulate the fetchLinearIssues command
 		issues, err := tc.model.LinearClient.GetAssignedIssues()
-		
+
 		var msg tea.Msg
 		if err != nil {
 			msg = linearErrorMsg{err}
 		} else {
 			msg = linearIssuesLoadedMsg{issues}
 		}
-		
+
 		// Update the model with the loading result
 		updatedModel, _ := tc.model.Update(msg)
 		tc.model = updatedModel.(model)
 	}
 }
 
-
 func (tc *TUITestContext) iPress(key string) error {
 	var keyMsg tea.KeyMsg
-	
+
 	switch key {
 	case "down":
 		keyMsg = tea.KeyMsg{Type: tea.KeyDown}
@@ -225,6 +222,8 @@ func (tc *TUITestContext) iPress(key string) error {
 		keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
 	case "escape":
 		keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
+	case "tab":
+		keyMsg = tea.KeyMsg{Type: tea.KeyTab}
 	case "/":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
 	case "backspace":
@@ -232,15 +231,15 @@ func (tc *TUITestContext) iPress(key string) error {
 	default:
 		return fmt.Errorf("unknown key: %s", key)
 	}
-	
+
 	if tc.testModel != nil {
 		tc.testModel.Send(keyMsg)
 	}
-	
+
 	// Update our local model reference and execute any returned commands
 	updatedModel, cmd := tc.model.Update(keyMsg)
 	tc.model = updatedModel.(model)
-	
+
 	// Execute the returned command if there is one
 	if cmd != nil {
 		msg := cmd()
@@ -248,7 +247,7 @@ func (tc *TUITestContext) iPress(key string) error {
 		finalModel, _ := tc.model.Update(msg)
 		tc.model = finalModel.(model)
 	}
-	
+
 	return nil
 }
 
@@ -256,15 +255,15 @@ func (tc *TUITestContext) iType(text string) error {
 	// Send each character as a separate key event
 	for _, char := range text {
 		keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{char}}
-		
+
 		if tc.testModel != nil {
 			tc.testModel.Send(keyMsg)
 		}
-		
+
 		// Update our local model reference and execute any returned commands
 		updatedModel, cmd := tc.model.Update(keyMsg)
 		tc.model = updatedModel.(model)
-		
+
 		// Execute the returned command if there is one
 		if cmd != nil {
 			msg := cmd()
@@ -273,7 +272,7 @@ func (tc *TUITestContext) iType(text string) error {
 			tc.model = finalModel.(model)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -281,50 +280,50 @@ func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
 	if tc.testModel == nil {
 		return fmt.Errorf("test model not initialized")
 	}
-	
+
 	// Extract cursor position from expected output if present
 	expectedContent, expectedCursorPos, err := extractCursorPosition(expected.Content)
 	if err != nil {
 		return fmt.Errorf("cursor position extraction error: %v", err)
 	}
-	
+
 	// Get current view from our model state instead of teatest output
 	actual := tc.model.View()
-	
+
 	// Strip ANSI codes for comparison
 	actual = StripANSI(actual)
-	
+
 	// Normalize whitespace more aggressively - strip leading and trailing whitespace from each line
 	actualLines := strings.Split(actual, "\n")
 	expectedLines := strings.Split(expectedContent, "\n")
-	
+
 	for i := range actualLines {
 		actualLines[i] = strings.TrimSpace(actualLines[i])
 	}
 	for i := range expectedLines {
 		expectedLines[i] = strings.TrimSpace(expectedLines[i])
 	}
-	
+
 	// Remove empty lines at the beginning and end
 	actualLines = trimEmptyLines(actualLines)
 	expectedLines = trimEmptyLines(expectedLines)
-	
+
 	actualNormalized := strings.Join(actualLines, "\n")
 	expectedNormalized := strings.Join(expectedLines, "\n")
-	
+
 	if actualNormalized != expectedNormalized {
 		return fmt.Errorf("UI output mismatch:\nExpected:\n%s\n\nActual:\n%s", expectedNormalized, actualNormalized)
 	}
-	
+
 	// Validate cursor position if specified
 	if expectedCursorPos != nil {
 		// Get actual cursor position from the text input model
 		// The cursor position depends on which input is focused and active
 		var actualCursorRow, actualCursorCol int
-		
+
 		if tc.model.InputMode && tc.model.TextInput.Focused() {
-			// Cursor is in the main text input (row 2, after header and blank line)
-			actualCursorRow = 2
+			// Cursor is in the main text input (row 3, after header, mode line, and blank line)
+			actualCursorRow = 3
 			actualCursorCol = len(tc.model.TextInput.Prompt) + tc.model.TextInput.Position()
 		} else if tc.model.SubtaskInputMode && tc.model.SubtaskInput.Focused() {
 			// Cursor is in subtask input - need to find its position in the tree
@@ -337,12 +336,12 @@ func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
 			// We'll skip cursor validation for non-input modes for now
 			return nil
 		}
-		
+
 		// Calculate the expected cursor position relative to the normalized output
 		// We need to account for the trimming we did above
 		originalLines := strings.Split(expected.Content, "\n")
 		normalizedLines := strings.Split(expectedNormalized, "\n")
-		
+
 		// Find how many lines were trimmed from the top
 		trimmedFromTop := 0
 		for i, line := range originalLines {
@@ -353,31 +352,31 @@ func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
 				trimmedFromTop++
 			}
 		}
-		
+
 		// Adjust expected cursor position for trimmed lines
 		adjustedExpectedRow := expectedCursorPos.Row - trimmedFromTop
-		
+
 		// For column position, we need to account for leading whitespace that was trimmed
 		var adjustedExpectedCol int
 		if adjustedExpectedRow >= 0 && adjustedExpectedRow < len(normalizedLines) {
 			originalLine := originalLines[expectedCursorPos.Row]
 			normalizedLine := normalizedLines[adjustedExpectedRow]
-			
+
 			// Calculate how much leading whitespace was trimmed
 			leadingSpacesTrimmed := len(originalLine) - len(strings.TrimLeft(originalLine, " \t"))
 			normalizedLeadingSpaces := len(normalizedLine) - len(strings.TrimLeft(normalizedLine, " \t"))
-			
+
 			adjustedExpectedCol = expectedCursorPos.Col - leadingSpacesTrimmed + normalizedLeadingSpaces
 		} else {
 			adjustedExpectedCol = expectedCursorPos.Col
 		}
-		
+
 		if actualCursorRow != adjustedExpectedRow || actualCursorCol != adjustedExpectedCol {
-			return fmt.Errorf("cursor position mismatch:\nExpected: row=%d, col=%d\nActual: row=%d, col=%d", 
+			return fmt.Errorf("cursor position mismatch:\nExpected: row=%d, col=%d\nActual: row=%d, col=%d",
 				adjustedExpectedRow, adjustedExpectedCol, actualCursorRow, actualCursorCol)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -388,17 +387,17 @@ func trimEmptyLines(lines []string) []string {
 	for start < len(lines) && lines[start] == "" {
 		start++
 	}
-	
+
 	// Find last non-empty line
 	end := len(lines)
 	for end > start && lines[end-1] == "" {
 		end--
 	}
-	
+
 	if start >= end {
 		return []string{}
 	}
-	
+
 	return lines[start:end]
 }
 
@@ -411,11 +410,11 @@ func (tc *TUITestContext) theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidt
 	if tc.testModel == nil {
 		return fmt.Errorf("test model not initialized")
 	}
-	
+
 	// Get current view
 	actual := tc.model.View()
 	actual = StripANSI(actual)
-	
+
 	// Check that long titles are truncated appropriately for narrow terminal
 	// For a 60-character terminal, we expect titles to be truncated
 	lines := strings.Split(actual, "\n")
@@ -424,7 +423,7 @@ func (tc *TUITestContext) theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidt
 		if len(line) > tc.terminalWidth {
 			return fmt.Errorf("line exceeds terminal width of %d characters: %s (length: %d)", tc.terminalWidth, line, len(line))
 		}
-		
+
 		// Check that long titles contain "..." indicating truncation
 		if strings.Contains(line, "SPR-124") && tc.terminalWidth < 100 {
 			if !strings.Contains(line, "...") {
@@ -432,26 +431,25 @@ func (tc *TUITestContext) theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidt
 			}
 		}
 	}
-	
+
 	return nil
 }
-
 
 // InitializeScenario initializes godog with our step definitions
 func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	tc := &TUITestContext{
 		t: t,
 	}
-	
+
 	// Setup a test context for each scenario
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 		tc.fakeClient = linear.NewFakeLinearClient()
-		tc.t = t // Ensure t is set for each scenario
-		tc.terminalWidth = 80  // Reset to default
+		tc.t = t              // Ensure t is set for each scenario
+		tc.terminalWidth = 80 // Reset to default
 		tc.terminalHeight = 24
 		return ctx, nil
 	})
-	
+
 	// Step definitions
 	ctx.Step(`^the following Linear issues exist:$`, tc.theFollowingLinearIssuesExist)
 	ctx.Step(`^my terminal width is (\d+) characters$`, tc.myTerminalWidthIsCharacters)
@@ -474,7 +472,7 @@ func TestFeatures(t *testing.T) {
 			TestingT: t,
 		},
 	}
-	
+
 	if suite.Run() != 0 {
 		t.Fatal("non-zero status returned, failed to run feature tests")
 	}
