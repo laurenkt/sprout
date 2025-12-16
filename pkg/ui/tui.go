@@ -61,13 +61,6 @@ type model struct {
 	MaxStatusWidth     int            // maximum width of issue statuses for alignment
 }
 
-type creationMode int
-
-const (
-	creationModeWorktree creationMode = iota
-	creationModeBranchOnly
-)
-
 var (
 	// Base colors - subtle and minimalist
 	primaryColor   = lipgloss.Color("69")  // Blue
@@ -648,7 +641,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Creating = false
 		m.Done = true
 		m.Success = true
-		m.Result = fmt.Sprintf("Switched to branch: %s", msg.branch)
+		m.Result = fmt.Sprintf("Branch created: %s", msg.branch)
 		// Ensure we don't trigger worktree default commands
 		m.WorktreePath = ""
 		return m, tea.Quit
@@ -660,14 +653,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Result = fmt.Sprintf("Worktree created at: %s", msg.path)
 		// Store the path for later execution and quit the TUI
 		m.WorktreePath = msg.path
-		return m, tea.Quit
-
-	case branchCreatedMsg:
-		m.Creating = false
-		m.Done = true
-		m.Success = true
-		m.Result = fmt.Sprintf("Branch created: %s", msg.branch)
-		m.WorktreePath = ""
 		return m, tea.Quit
 
 	case errMsg:
@@ -808,16 +793,6 @@ func (m *model) setSubtaskEntryMode(issueID string, enabled bool) {
 		}
 	}
 	update(&m.LinearIssues)
-}
-
-func (m model) createBranch() tea.Cmd {
-	return func() tea.Msg {
-		branchName := strings.TrimSpace(m.TextInput.Value())
-		if err := m.WorktreeManager.CreateBranch(branchName); err != nil {
-			return errMsg{err}
-		}
-		return branchCreatedMsg{branchName}
-	}
 }
 
 func (m model) createWorktree() tea.Cmd {
@@ -1026,10 +1001,6 @@ type worktreeCreatedMsg struct {
 	path   string
 }
 
-type branchCreatedMsg struct {
-	branch string
-}
-
 type linearIssuesLoadedMsg struct {
 	issues []linear.Issue
 }
@@ -1087,7 +1058,7 @@ func (m model) View() string {
 
 	s := strings.Builder{}
 	s.WriteString(headerStyle.Render(fmt.Sprintf("🌱 sprout [%s]", modeLabel)))
-	s.WriteString("\n")
+	s.WriteString("\n\n")
 
 	// Input using textinput component - adjust prompt style based on selection and display search mode appropriately
 	if m.SearchMode {
@@ -1144,7 +1115,7 @@ func (m model) View() string {
 	if !strings.HasSuffix(s.String(), "\n") {
 		s.WriteString("\n")
 	}
-	modeLabel := "[worktree <tab>]"
+	modeLabel = "[worktree <tab>]"
 	if m.CreationMode == creationModeBranchOnly {
 		modeLabel = "[branch <tab>]"
 	}
