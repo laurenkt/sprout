@@ -16,7 +16,7 @@ Feature: Sprout TUI Navigation
     When I start the Sprout TUI
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/█enter branch name or select suggestion below
       ├──SPR-2     Todo         Add user authentication
@@ -30,7 +30,7 @@ Feature: Sprout TUI Navigation
     When I press "down"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/spr-2-add-user-authentication
       ├──SPR-2     Todo         Add user authentication
@@ -45,7 +45,7 @@ Feature: Sprout TUI Navigation
     When I press "up"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/█enter branch name or select suggestion below
       ├──SPR-2     Todo         Add user authentication

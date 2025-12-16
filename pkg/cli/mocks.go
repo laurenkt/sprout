@@ -9,6 +9,7 @@ import (
 // MockWorktreeManager implements git.WorktreeManagerInterface for testing
 type MockWorktreeManager struct {
 	Worktrees []git.Worktree
+	Branch    string
 }
 
 func (m *MockWorktreeManager) CreateWorktree(branchName string) (string, error) {
@@ -17,6 +18,7 @@ func (m *MockWorktreeManager) CreateWorktree(branchName string) (string, error) 
 }
 
 func (m *MockWorktreeManager) CreateBranch(branchName string) error {
+	m.Branch = branchName
 	return nil
 }
 

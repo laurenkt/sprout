@@ -17,7 +17,7 @@ Feature: Sprout TUI Interaction
     When I press "down"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/spr-123-add-user-authentication█
       ├──SPR-123  Todo         Add user authentication
@@ -28,7 +28,7 @@ Feature: Sprout TUI Interaction
     When I press "up"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/█enter branch name or select suggestion below
       ├──SPR-123  Todo         Add user authentication

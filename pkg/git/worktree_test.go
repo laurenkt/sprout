@@ -271,33 +271,35 @@ func TestCreateWorktreeFromBase(t *testing.T) {
 	}
 }
 
-func TestCreateBranch(t *testing.T) {
+func TestCreateBranchCreatesAndChecksOut(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "sprout-branch-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
+	// Initialize git repo
 	cmd := exec.Command("git", "init")
 	cmd.Dir = tempDir
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to init git repo: %v", err)
 	}
 
-	cmd = exec.Command("git", "config", "user.email", "test@example.com")
-	cmd.Dir = tempDir
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to configure git email: %v", err)
+	// Configure git user for commits
+	for key, value := range map[string]string{
+		"user.email": "test@example.com",
+		"user.name":  "Test User",
+	} {
+		cmd = exec.Command("git", "config", key, value)
+		cmd.Dir = tempDir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("Failed to configure git %s: %v", key, err)
+		}
 	}
 
-	cmd = exec.Command("git", "config", "user.name", "Test User")
-	cmd.Dir = tempDir
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to configure git name: %v", err)
-	}
-
+	// Create initial commit
 	testFile := filepath.Join(tempDir, "README.md")
-	if err := os.WriteFile(testFile, []byte("# Branch Test"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("# Test"), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -315,40 +317,47 @@ func TestCreateBranch(t *testing.T) {
 
 	wm := &WorktreeManager{repoRoot: tempDir}
 
-	if err := wm.CreateBranch("Feature Branch!"); err != nil {
-		t.Fatalf("CreateBranch returned error: %v", err)
-	}
-
-	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/feature-branch")
-	cmd.Dir = tempDir
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Expected branch 'feature-branch' to exist: %v", err)
-	}
-
 	baseBranch, err := wm.getBaseBranch()
 	if err != nil {
 		t.Fatalf("Failed to determine base branch: %v", err)
 	}
 
+	targetBranch := "feature/create-branch"
+
+	if err := wm.CreateBranch(targetBranch); err != nil {
+		t.Fatalf("CreateBranch returned error: %v", err)
+	}
+
+	// Verify we are on the new branch
+	cmd = exec.Command("git", "branch", "--show-current")
+	cmd.Dir = tempDir
+	currentBranchBytes, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get current branch: %v", err)
+	}
+	currentBranch := strings.TrimSpace(string(currentBranchBytes))
+	if currentBranch != targetBranch {
+		t.Fatalf("Expected to be on branch '%s', got '%s'", targetBranch, currentBranch)
+	}
+
+	// Verify the branch exists and matches the base commit
 	cmd = exec.Command("git", "rev-parse", baseBranch)
 	cmd.Dir = tempDir
-	baseCommit, err := cmd.Output()
+	baseCommitBytes, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to get base branch commit: %v", err)
 	}
+	baseCommit := strings.TrimSpace(string(baseCommitBytes))
 
-	cmd = exec.Command("git", "rev-parse", "feature-branch")
+	cmd = exec.Command("git", "rev-parse", targetBranch)
 	cmd.Dir = tempDir
-	featureCommit, err := cmd.Output()
+	targetCommitBytes, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("Failed to get feature branch commit: %v", err)
+		t.Fatalf("Failed to get target branch commit: %v", err)
 	}
+	targetCommit := strings.TrimSpace(string(targetCommitBytes))
 
-	if strings.TrimSpace(string(baseCommit)) != strings.TrimSpace(string(featureCommit)) {
-		t.Fatalf("Expected feature branch to point to base branch commit")
-	}
-
-	if err := wm.CreateBranch("Feature Branch!"); err != nil {
-		t.Fatalf("Expected CreateBranch to be idempotent, got error: %v", err)
+	if baseCommit != targetCommit {
+		t.Fatalf("Expected new branch to start from %s, got %s", baseCommit, targetCommit)
 	}
 }

@@ -11,7 +11,7 @@ Feature: Sprout duplicate issue handling
     When I start the Sprout TUI
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/enter branch name or select suggestion below
       └──TICK-1  In Progress  Parent Task
@@ -21,7 +21,7 @@ Feature: Sprout duplicate issue handling
     And I press "right"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/tick-1-parent-task
       └──TICK-1  In Progress  Parent Task
@@ -40,7 +40,7 @@ Feature: Sprout duplicate issue handling
     When I start the Sprout TUI
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/enter branch name or select suggestion below
       ├──TICK-1  In Progress  Parent Task
