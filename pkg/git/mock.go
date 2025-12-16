@@ -9,12 +9,14 @@ import (
 type MockWorktreeManager struct {
 	repoRoot  string
 	worktrees []Worktree
+	Branch    string
 }
 
 // NewMockWorktreeManager creates a new mock worktree manager
 func NewMockWorktreeManager(repoRoot string) *MockWorktreeManager {
 	return &MockWorktreeManager{
 		repoRoot: repoRoot,
+		Branch:   "main",
 		worktrees: []Worktree{
 			{
 				Path:     filepath.Join(repoRoot, ".worktrees", "main"),
@@ -60,11 +62,14 @@ func (m *MockWorktreeManager) CreateWorktree(branchName string) (string, error) 
 	return worktreePath, nil
 }
 
-// CreateBranch is a no-op mock that tracks the branch creation request
+// CreateBranch records the created branch and sets it as the active branch
 func (m *MockWorktreeManager) CreateBranch(branchName string) error {
-	if sanitizeBranchName(branchName) == "" {
+	sanitizedBranchName := sanitizeBranchName(branchName)
+	if sanitizedBranchName == "" {
 		return fmt.Errorf("branch name results in empty string after sanitization")
 	}
+
+	m.Branch = sanitizedBranchName
 	return nil
 }
 

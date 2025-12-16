@@ -19,7 +19,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "/"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /type to fuzzy search
       ├──SPR-123  Todo         Add user authentication
@@ -36,7 +36,7 @@ Feature: Sprout TUI Fuzzy Search
     When I type "auth"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /auth
       └──SPR-123  Todo  Add user authentication
@@ -49,7 +49,7 @@ Feature: Sprout TUI Fuzzy Search
     When I type "127"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /127
       └──SPR-127  In Review  Fix critical bug in payment processing
@@ -62,7 +62,7 @@ Feature: Sprout TUI Fuzzy Search
     When I type "user"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /user
       ├──SPR-123  Todo     Add user authentication
@@ -76,7 +76,7 @@ Feature: Sprout TUI Fuzzy Search
     When I type "xyz"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /xyz
       [worktree <tab>]
@@ -89,7 +89,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "escape"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/enter branch name or select suggestion below
       ├──SPR-123  Todo         Add user authentication
@@ -107,7 +107,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "down"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /user sprout/spr-123-add-user-authentication
       ├──SPR-123  Todo     Add user authentication
@@ -117,7 +117,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "down"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /user sprout/spr-128-update-user-profile-settings
       ├──SPR-123  Todo     Add user authentication
@@ -127,7 +127,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "up"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /user sprout/spr-123-add-user-authentication
       ├──SPR-123  Todo     Add user authentication
@@ -142,7 +142,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "backspace"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /aut
       ├──SPR-123  Todo       Add user authentication
@@ -153,7 +153,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "backspace"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /au
       ├──SPR-123  Todo       Add user authentication
@@ -164,7 +164,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "backspace"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /a
       ├──SPR-123  Todo         Add user authentication
@@ -177,7 +177,7 @@ Feature: Sprout TUI Fuzzy Search
     When I press "backspace"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       /type to fuzzy search
       ├──SPR-123  Todo         Add user authentication

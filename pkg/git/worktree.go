@@ -72,6 +72,39 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 	return wm.createNormalWorktree(worktreePath, sanitizedBranchName)
 }
 
+// CreateBranch creates a branch from the base branch and checks it out
+func (wm *WorktreeManager) CreateBranch(branchName string) error {
+	sanitizedBranchName := sanitizeBranchName(branchName)
+	if sanitizedBranchName == "" {
+		return fmt.Errorf("branch name results in empty string after sanitization")
+	}
+
+	baseBranch, err := wm.getBaseBranch()
+	if err != nil {
+		return fmt.Errorf("failed to determine base branch: %w", err)
+	}
+
+	// Create the branch if it does not already exist
+	checkBranchCmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+sanitizedBranchName)
+	checkBranchCmd.Dir = wm.repoRoot
+	if err := checkBranchCmd.Run(); err != nil {
+		cmd := exec.Command("git", "branch", sanitizedBranchName, baseBranch)
+		cmd.Dir = wm.repoRoot
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to create branch: %w\nOutput: %s", err, string(output))
+		}
+	}
+
+	// Switch to the branch
+	checkoutCmd := exec.Command("git", "checkout", sanitizedBranchName)
+	checkoutCmd.Dir = wm.repoRoot
+	if output, err := checkoutCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to checkout branch: %w\nOutput: %s", err, string(output))
+	}
+
+	return nil
+}
+
 func (wm *WorktreeManager) createNormalWorktree(worktreePath, branchName string) (string, error) {
 	// Determine the base branch (master or main)
 	baseBranch, err := wm.getBaseBranch()
@@ -454,34 +487,5 @@ func (wm *WorktreeManager) PruneAllMerged() error {
 	}
 
 	fmt.Printf("\nSuccessfully pruned %d merged worktree(s)\n", len(mergedWorktrees))
-	return nil
-}
-
-// CreateBranch creates a git branch without making a worktree
-func (wm *WorktreeManager) CreateBranch(branchName string) error {
-	sanitizedBranchName := sanitizeBranchName(branchName)
-	if sanitizedBranchName == "" {
-		return fmt.Errorf("branch name results in empty string after sanitization")
-	}
-
-	// Determine the base branch to branch from
-	baseBranch, err := wm.getBaseBranch()
-	if err != nil {
-		return fmt.Errorf("failed to determine base branch: %w", err)
-	}
-
-	// If the branch already exists, treat it as success
-	checkCmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+sanitizedBranchName)
-	checkCmd.Dir = wm.repoRoot
-	if err := checkCmd.Run(); err == nil {
-		return nil
-	}
-
-	cmd := exec.Command("git", "branch", sanitizedBranchName, baseBranch)
-	cmd.Dir = wm.repoRoot
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create branch: %w\nOutput: %s", err, string(output))
-	}
-
 	return nil
 }

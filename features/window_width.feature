@@ -15,7 +15,7 @@ Feature: Window Width Responsive Layout
     When I start the Sprout TUI
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/enter branch name or select suggestion below
       ├──SPR-123  Todo         Add user authentication

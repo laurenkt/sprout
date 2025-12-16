@@ -17,7 +17,7 @@ Feature: Sprout TUI Tree Expansion
     When I start the Sprout TUI
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/enter branch name or select suggestion below
       ├──SPR-100  In Progress  Feature A: User management system
@@ -28,7 +28,7 @@ Feature: Sprout TUI Tree Expansion
     When I press "down"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/spr-100-feature-a-user-management-system
       ├──SPR-100  In Progress  Feature A: User management system
@@ -39,7 +39,7 @@ Feature: Sprout TUI Tree Expansion
     When I press "right"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/spr-100-feature-a-user-management-system
       ├──SPR-100  In Progress  Feature A: User management system
@@ -56,7 +56,7 @@ Feature: Sprout TUI Tree Expansion
     And I press "down"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  In Progress  Feature A: User management system
@@ -70,7 +70,7 @@ Feature: Sprout TUI Tree Expansion
     When I press "right"
     Then the UI should display:
       """
-      🌱 sprout
+      🌱 sprout [worktree]
 
       > sprout/spr-200-feature-b-dashboard-and-analytics
       ├──SPR-100  In Progress  Feature A: User management system

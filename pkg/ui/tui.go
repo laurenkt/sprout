@@ -18,6 +18,13 @@ import (
 	"sprout/pkg/linear"
 )
 
+type creationMode int
+
+const (
+	creationModeWorktree creationMode = iota
+	creationModeBranchOnly
+)
+
 type model struct {
 	TextInput          textinput.Model
 	SubtaskInput       textinput.Model
@@ -35,13 +42,16 @@ type model struct {
 	LinearIssues       []linear.Issue
 	LinearLoading      bool
 	LinearError        string
-	SelectedIssue      *linear.Issue  // nil for custom input mode
-	InputMode          bool           // true when in custom input mode, false when selecting tickets
-	CreatingSubtask    bool           // true while creating subtask
-	SubtaskInputMode   bool           // true when editing subtask inline
-	SubtaskParentID    string         // ID of parent issue when creating subtask
-	AddSubtaskSelected string         // ID of parent issue whose "Add subtask" is selected
+	SelectedIssue      *linear.Issue // nil for custom input mode
+	InputMode          bool          // true when in custom input mode, false when selecting tickets
+	CreatingSubtask    bool          // true while creating subtask
+	SubtaskInputMode   bool          // true when editing subtask inline
+	SubtaskParentID    string        // ID of parent issue when creating subtask
+	AddSubtaskSelected string        // ID of parent issue whose "Add subtask" is selected
+	CreationMode       creationMode
+	ActiveCreationMode creationMode   // creation mode currently executing
 	DefaultPlaceholder string         // The default placeholder text for the input
+	BranchPlaceholder  string         // Placeholder when in branch-only mode
 	SearchMode         bool           // true when in fuzzy search mode (triggered by /)
 	SearchQuery        string         // current search query in search mode
 	FilteredIssues     []linear.Issue // filtered list of issues based on search
@@ -49,16 +59,7 @@ type model struct {
 	Height             int            // terminal height
 	MaxIdentifierWidth int            // maximum width of issue identifiers for alignment
 	MaxStatusWidth     int            // maximum width of issue statuses for alignment
-	CreationMode       creationMode   // user-selected creation mode
-	ActiveCreationMode creationMode   // creation mode currently executing
 }
-
-type creationMode int
-
-const (
-	creationModeWorktree creationMode = iota
-	creationModeBranchOnly
-)
 
 var (
 	// Base colors - subtle and minimalist
@@ -238,14 +239,15 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		SubtaskInputMode:   false,
 		SubtaskParentID:    "",
 		AddSubtaskSelected: "",
+		CreationMode:       creationModeWorktree,
+		ActiveCreationMode: creationModeWorktree,
 		DefaultPlaceholder: "enter branch name or select suggestion below",
+		BranchPlaceholder:  "enter branch name to create and switch",
 		SearchMode:         false,
 		SearchQuery:        "",
 		FilteredIssues:     nil,
 		Width:              80, // Default, will be updated when we get window size
 		Height:             24, // Default, will be updated when we get window size
-		CreationMode:       creationModeWorktree,
-		ActiveCreationMode: creationModeWorktree,
 	}, nil
 }
 
@@ -301,7 +303,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.SearchMode = false
 				m.SearchQuery = ""
 				m.FilteredIssues = nil
-				m.TextInput.Placeholder = m.DefaultPlaceholder
+				m.TextInput.Placeholder = m.placeholderText()
 				m.TextInput.SetValue("") // Clear the search input
 				m.InputMode = true
 				m.TextInput.Focus()
@@ -321,6 +323,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.Cancelled = true
 			return m, tea.Quit
+
+		case tea.KeyTab:
+			if m.Submitted || m.SubtaskInputMode {
+				return m, nil
+			}
+
+			if m.CreationMode == creationModeWorktree {
+				m.CreationMode = creationModeBranchOnly
+			} else {
+				m.CreationMode = creationModeWorktree
+			}
+
+			if m.SelectedIssue == nil && !m.SearchMode {
+				m.TextInput.Placeholder = m.placeholderText()
+			}
+			return m, nil
 
 		case tea.KeyEnter:
 			if !m.Submitted {
@@ -358,7 +376,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Creating = true
 				m.ActiveCreationMode = m.CreationMode
 				m.TextInput.SetValue(branchName) // Set the input to the selected branch name
-
 				var creationCmd tea.Cmd
 				if m.CreationMode == creationModeBranchOnly {
 					creationCmd = m.createBranch()
@@ -368,16 +385,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				return m, tea.Batch(creationCmd, m.Spinner.Tick)
 			}
-		case tea.KeyTab:
-			if !m.Submitted && !m.SubtaskInputMode {
-				if m.CreationMode == creationModeWorktree {
-					m.CreationMode = creationModeBranchOnly
-				} else {
-					m.CreationMode = creationModeWorktree
-				}
-			}
-			return m, nil
-
 		case tea.KeyUp:
 			if !m.Submitted {
 				if m.SearchMode {
@@ -435,8 +442,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.SelectedIssue = nil
 						m.InputMode = true
 						m.TextInput.Focus()
-						m.TextInput.Placeholder = m.DefaultPlaceholder
-						m.CreationMode = creationModeBranchOnly
+						m.TextInput.Placeholder = m.placeholderText()
 					}
 				}
 			}
@@ -479,7 +485,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.AddSubtaskSelected = ""
 							m.InputMode = true
 							m.TextInput.Focus()
-							m.TextInput.Placeholder = m.DefaultPlaceholder
+							m.TextInput.Placeholder = m.placeholderText()
 						}
 					}
 				} else if m.SelectedIssue == nil && len(m.LinearIssues) > 0 {
@@ -527,7 +533,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.SelectedIssue = nil
 									m.InputMode = true
 									m.TextInput.Focus()
-									m.TextInput.Placeholder = m.DefaultPlaceholder
+									m.TextInput.Placeholder = m.placeholderText()
 								}
 							}
 						}
@@ -631,6 +637,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case branchCreatedMsg:
+		m.Creating = false
+		m.Done = true
+		m.Success = true
+		m.Result = fmt.Sprintf("Branch created: %s", msg.branch)
+		// Ensure we don't trigger worktree default commands
+		m.WorktreePath = ""
+		return m, tea.Quit
+
 	case worktreeCreatedMsg:
 		m.Creating = false
 		m.Done = true
@@ -638,14 +653,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Result = fmt.Sprintf("Worktree created at: %s", msg.path)
 		// Store the path for later execution and quit the TUI
 		m.WorktreePath = msg.path
-		return m, tea.Quit
-
-	case branchCreatedMsg:
-		m.Creating = false
-		m.Done = true
-		m.Success = true
-		m.Result = fmt.Sprintf("Branch created: %s", msg.branch)
-		m.WorktreePath = ""
 		return m, tea.Quit
 
 	case errMsg:
@@ -725,6 +732,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, cmd
+}
+
+func (m model) placeholderText() string {
+	if m.CreationMode == creationModeBranchOnly {
+		return m.BranchPlaceholder
+	}
+	return m.DefaultPlaceholder
 }
 
 // getFirstVisibleIssue returns the first visible issue in the tree
@@ -978,13 +992,13 @@ type errMsg struct {
 	err error
 }
 
+type branchCreatedMsg struct {
+	branch string
+}
+
 type worktreeCreatedMsg struct {
 	branch string
 	path   string
-}
-
-type branchCreatedMsg struct {
-	branch string
 }
 
 type linearIssuesLoadedMsg struct {
@@ -1023,7 +1037,11 @@ func (m model) View() string {
 	}
 
 	if m.Creating {
-		if m.ActiveCreationMode == creationModeBranchOnly {
+		actionMode := m.ActiveCreationMode
+		if actionMode == 0 {
+			actionMode = m.CreationMode
+		}
+		if actionMode == creationModeBranchOnly {
 			return fmt.Sprintf("%s Creating branch...", m.Spinner.View())
 		}
 		return fmt.Sprintf("%s Creating worktree...", m.Spinner.View())
@@ -1033,8 +1051,13 @@ func (m model) View() string {
 		return fmt.Sprintf("%s Creating subtask...", m.Spinner.View())
 	}
 
+	modeLabel := "worktree"
+	if m.CreationMode == creationModeBranchOnly {
+		modeLabel = "branch"
+	}
+
 	s := strings.Builder{}
-	s.WriteString(headerStyle.Render("🌱 sprout"))
+	s.WriteString(headerStyle.Render(fmt.Sprintf("🌱 sprout [%s]", modeLabel)))
 	s.WriteString("\n\n")
 
 	// Input using textinput component - adjust prompt style based on selection and display search mode appropriately
@@ -1092,7 +1115,7 @@ func (m model) View() string {
 	if !strings.HasSuffix(s.String(), "\n") {
 		s.WriteString("\n")
 	}
-	modeLabel := "[worktree <tab>]"
+	modeLabel = "[worktree <tab>]"
 	if m.CreationMode == creationModeBranchOnly {
 		modeLabel = "[branch <tab>]"
 	}
