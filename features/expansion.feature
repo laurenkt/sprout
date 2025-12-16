@@ -23,6 +23,7 @@ Feature: Sprout TUI Tree Expansion
       ├──SPR-100  In Progress  Feature A: User management system
       ├──SPR-200  Todo         Feature B: Dashboard and analytics
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
     When I press "down"
     Then the UI should display:
@@ -33,6 +34,7 @@ Feature: Sprout TUI Tree Expansion
       ├──SPR-100  In Progress  Feature A: User management system
       ├──SPR-200  Todo         Feature B: Dashboard and analytics
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
     When I press "right"
     Then the UI should display:
@@ -46,6 +48,7 @@ Feature: Sprout TUI Tree Expansion
       │  └──+ Add subtask
       ├──SPR-200  Todo         Feature B: Dashboard and analytics
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
     When I press "down"
     And I press "down"
@@ -62,6 +65,7 @@ Feature: Sprout TUI Tree Expansion
       │  └──+ Add subtask
       ├──SPR-200  Todo         Feature B: Dashboard and analytics
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """
     When I press "right"
     Then the UI should display:
@@ -79,4 +83,5 @@ Feature: Sprout TUI Tree Expansion
       │  ├──SPR-203  Backlog      Implement data visualization
       │  └──+ Add subtask
       └──SPR-300  In Review    Bug fix: Payment processing errors
+      [worktree <tab>]
       """

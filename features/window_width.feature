@@ -20,6 +20,7 @@ Feature: Window Width Responsive Layout
       > sprout/enter branch name or select suggestion below
       ├──SPR-123  Todo         Add user authentication
       └──SPR-124  In Progress  Implement comprehensive dashboard with advanced analytics and detailed reporting ...
+      [worktree <tab>]
       """
 
   Scenario: Narrow terminal truncates appropriately

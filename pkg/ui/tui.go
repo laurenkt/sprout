@@ -19,37 +19,46 @@ import (
 )
 
 type model struct {
-	TextInput        textinput.Model
-	SubtaskInput     textinput.Model
-	Spinner          spinner.Model
-	Submitted        bool
-	Creating         bool
-	Done             bool
-	Success          bool
-	Cancelled        bool
-	ErrorMsg         string
-	Result           string
-	WorktreePath     string
-	WorktreeManager  git.WorktreeManagerInterface
-	LinearClient     linear.LinearClientInterface
-	LinearIssues     []linear.Issue
-	LinearLoading    bool
-	LinearError      string
-	SelectedIssue    *linear.Issue  // nil for custom input mode
-	InputMode        bool           // true when in custom input mode, false when selecting tickets
-	CreatingSubtask    bool   // true while creating subtask
-	SubtaskInputMode   bool   // true when editing subtask inline
-	SubtaskParentID    string // ID of parent issue when creating subtask
-	AddSubtaskSelected string // ID of parent issue whose "Add subtask" is selected
-	DefaultPlaceholder string // The default placeholder text for the input
-	SearchMode         bool   // true when in fuzzy search mode (triggered by /)
-	SearchQuery        string // current search query in search mode
+	TextInput          textinput.Model
+	SubtaskInput       textinput.Model
+	Spinner            spinner.Model
+	Submitted          bool
+	Creating           bool
+	Done               bool
+	Success            bool
+	Cancelled          bool
+	ErrorMsg           string
+	Result             string
+	WorktreePath       string
+	WorktreeManager    git.WorktreeManagerInterface
+	LinearClient       linear.LinearClientInterface
+	LinearIssues       []linear.Issue
+	LinearLoading      bool
+	LinearError        string
+	SelectedIssue      *linear.Issue  // nil for custom input mode
+	InputMode          bool           // true when in custom input mode, false when selecting tickets
+	CreatingSubtask    bool           // true while creating subtask
+	SubtaskInputMode   bool           // true when editing subtask inline
+	SubtaskParentID    string         // ID of parent issue when creating subtask
+	AddSubtaskSelected string         // ID of parent issue whose "Add subtask" is selected
+	DefaultPlaceholder string         // The default placeholder text for the input
+	SearchMode         bool           // true when in fuzzy search mode (triggered by /)
+	SearchQuery        string         // current search query in search mode
 	FilteredIssues     []linear.Issue // filtered list of issues based on search
-	Width              int    // terminal width
-	Height             int    // terminal height
-	MaxIdentifierWidth int    // maximum width of issue identifiers for alignment
-	MaxStatusWidth     int    // maximum width of issue statuses for alignment
+	Width              int            // terminal width
+	Height             int            // terminal height
+	MaxIdentifierWidth int            // maximum width of issue identifiers for alignment
+	MaxStatusWidth     int            // maximum width of issue statuses for alignment
+	CreationMode       creationMode   // user-selected creation mode
+	ActiveCreationMode creationMode   // creation mode currently executing
 }
+
+type creationMode int
+
+const (
+	creationModeWorktree creationMode = iota
+	creationModeBranchOnly
+)
 
 var (
 	// Base colors - subtle and minimalist
@@ -62,8 +71,7 @@ var (
 	// Header style
 	headerStyle = lipgloss.NewStyle().
 			Foreground(primaryColor).
-			Bold(true).
-			MarginBottom(1)
+			Bold(true)
 
 	// Selected item style - subtle highlight
 	selectedStyle = lipgloss.NewStyle().
@@ -85,17 +93,17 @@ var (
 
 	// Issue status styles - color-coded by status type
 	statusBacklogStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")) // Dark gray for backlog/unstarted
+				Foreground(lipgloss.Color("240")) // Dark gray for backlog/unstarted
 	statusTodoStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243")) // Light gray for todo
 	statusInProgressStyle = lipgloss.NewStyle().
-			Foreground(warningColor) // Yellow for in progress
+				Foreground(warningColor) // Yellow for in progress
 	statusInReviewStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("177")) // Purple for in review
+				Foreground(lipgloss.Color("177")) // Purple for in review
 	statusDoneStyle = lipgloss.NewStyle().
 			Foreground(accentColor) // Green for done/completed
 	statusCancelledStyle = lipgloss.NewStyle().
-			Foreground(errorColor) // Red for cancelled
+				Foreground(errorColor) // Red for cancelled
 
 	// Issue title style
 	titleStyle = lipgloss.NewStyle().
@@ -132,8 +140,7 @@ var (
 	// Help text style
 	helpStyle = lipgloss.NewStyle().
 			Foreground(secondaryColor).
-			Italic(true).
-			MarginTop(1)
+			Italic(true)
 )
 
 func NewTUI() (model, error) {
@@ -209,24 +216,24 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 	s.Style = lipgloss.NewStyle().Foreground(warningColor)
 
 	return model{
-		TextInput:        ti,
-		SubtaskInput:     si,
-		Spinner:          s,
-		Submitted:        false,
-		Creating:         false,
-		Done:             false,
-		Success:          false,
-		Cancelled:        false,
-		ErrorMsg:         "",
-		Result:           "",
-		WorktreePath:     "",
-		WorktreeManager:  wm,
-		LinearClient:     linearClient,
-		LinearIssues:     nil,
-		LinearLoading:    linearClient != nil, // Start loading if we have a client
-		LinearError:      "",
-		SelectedIssue:    nil, // Start with custom input selected
-		InputMode:        true,
+		TextInput:          ti,
+		SubtaskInput:       si,
+		Spinner:            s,
+		Submitted:          false,
+		Creating:           false,
+		Done:               false,
+		Success:            false,
+		Cancelled:          false,
+		ErrorMsg:           "",
+		Result:             "",
+		WorktreePath:       "",
+		WorktreeManager:    wm,
+		LinearClient:       linearClient,
+		LinearIssues:       nil,
+		LinearLoading:      linearClient != nil, // Start loading if we have a client
+		LinearError:        "",
+		SelectedIssue:      nil, // Start with custom input selected
+		InputMode:          true,
 		CreatingSubtask:    false,
 		SubtaskInputMode:   false,
 		SubtaskParentID:    "",
@@ -237,6 +244,8 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		FilteredIssues:     nil,
 		Width:              80, // Default, will be updated when we get window size
 		Height:             24, // Default, will be updated when we get window size
+		CreationMode:       creationModeWorktree,
+		ActiveCreationMode: creationModeWorktree,
 	}, nil
 }
 
@@ -269,7 +278,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
-		
+
 		// Update text input width to use most of the terminal width
 		// Leave some space for the prompt and margins
 		promptWidth := lipgloss.Width(m.TextInput.Prompt)
@@ -277,9 +286,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.TextInput.Width < 20 {
 			m.TextInput.Width = 20 // Minimum width
 		}
-		
+
 		return m, nil
-		
+
 	case tea.KeyMsg:
 		if m.Done {
 			return m, tea.Quit
@@ -299,7 +308,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.SelectedIssue = nil
 				return m, nil
 			}
-			
+
 			// Check if we're in subtask input mode and exit that
 			if m.SubtaskInputMode {
 				m.SubtaskInputMode = false
@@ -347,9 +356,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				m.Submitted = true
 				m.Creating = true
+				m.ActiveCreationMode = m.CreationMode
 				m.TextInput.SetValue(branchName) // Set the input to the selected branch name
-				return m, tea.Batch(m.createWorktree(), m.Spinner.Tick)
+
+				var creationCmd tea.Cmd
+				if m.CreationMode == creationModeBranchOnly {
+					creationCmd = m.createBranch()
+				} else {
+					creationCmd = m.createWorktree()
+				}
+
+				return m, tea.Batch(creationCmd, m.Spinner.Tick)
 			}
+		case tea.KeyTab:
+			if !m.Submitted && !m.SubtaskInputMode {
+				if m.CreationMode == creationModeWorktree {
+					m.CreationMode = creationModeBranchOnly
+				} else {
+					m.CreationMode = creationModeWorktree
+				}
+			}
+			return m, nil
 
 		case tea.KeyUp:
 			if !m.Submitted {
@@ -409,6 +436,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.InputMode = true
 						m.TextInput.Focus()
 						m.TextInput.Placeholder = m.DefaultPlaceholder
+						m.CreationMode = creationModeBranchOnly
 					}
 				}
 			}
@@ -549,7 +577,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
-			
+
 		case tea.KeyBackspace:
 			// Handle backspace in search mode
 			if m.SearchMode && !m.Submitted && !m.SubtaskInputMode {
@@ -566,7 +594,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.FilteredIssues = m.filterIssuesBySearch(m.SearchQuery)
 				return m, cmd
 			}
-			
+
 		case tea.KeyRunes:
 			// Handle "/" key to enter search mode
 			if !m.Submitted && !m.SubtaskInputMode && len(msg.Runes) == 1 && msg.Runes[0] == '/' {
@@ -585,7 +613,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			
+
 			// In search mode, handle typing
 			if m.SearchMode && !m.Submitted {
 				// Let the text input handle the typing
@@ -610,6 +638,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Result = fmt.Sprintf("Worktree created at: %s", msg.path)
 		// Store the path for later execution and quit the TUI
 		m.WorktreePath = msg.path
+		return m, tea.Quit
+
+	case branchCreatedMsg:
+		m.Creating = false
+		m.Done = true
+		m.Success = true
+		m.Result = fmt.Sprintf("Branch created: %s", msg.branch)
+		m.WorktreePath = ""
 		return m, tea.Quit
 
 	case errMsg:
@@ -747,6 +783,10 @@ func (m *model) setSubtaskEntryMode(issueID string, enabled bool) {
 
 func (m model) createWorktree() tea.Cmd {
 	return func() tea.Msg {
+		if m.WorktreeManager == nil {
+			return errMsg{fmt.Errorf("worktree manager not configured")}
+		}
+
 		branchName := strings.TrimSpace(m.TextInput.Value())
 		worktreePath, err := m.WorktreeManager.CreateWorktree(branchName)
 		if err != nil {
@@ -756,6 +796,19 @@ func (m model) createWorktree() tea.Cmd {
 	}
 }
 
+func (m model) createBranch() tea.Cmd {
+	return func() tea.Msg {
+		if m.WorktreeManager == nil {
+			return errMsg{fmt.Errorf("worktree manager not configured")}
+		}
+
+		branchName := strings.TrimSpace(m.TextInput.Value())
+		if err := m.WorktreeManager.CreateBranch(branchName); err != nil {
+			return errMsg{err}
+		}
+		return branchCreatedMsg{branch: branchName}
+	}
+}
 
 // updateIssueExpansion updates the expanded state of an issue recursively
 func (m *model) updateIssueExpansion(issueID string, expanded bool) {
@@ -832,9 +885,9 @@ func (m *model) filterIssuesBySearch(query string) []linear.Issue {
 	if query == "" {
 		return m.LinearIssues
 	}
-	
+
 	var filtered []linear.Issue
-	
+
 	// Helper function to recursively collect all issues (including children)
 	var collectAllIssues func(issues []linear.Issue) []linear.Issue
 	collectAllIssues = func(issues []linear.Issue) []linear.Issue {
@@ -847,26 +900,26 @@ func (m *model) filterIssuesBySearch(query string) []linear.Issue {
 		}
 		return result
 	}
-	
+
 	allIssues := collectAllIssues(m.LinearIssues)
-	
+
 	// Create search targets (identifier + title) for fuzzy matching
 	var targets []string
 	for _, issue := range allIssues {
 		targets = append(targets, strings.ToLower(issue.Identifier+" "+issue.Title))
 	}
-	
-	// Perform fuzzy search  
+
+	// Perform fuzzy search
 	matches := fuzzy.FindNormalized(strings.ToLower(query), targets)
-	
+
 	// Build filtered results maintaining only top-level issues
 	matchedTargets := make(map[string]bool)
 	for _, match := range matches {
 		matchedTargets[match] = true
 	}
-	
+
 	for _, issue := range allIssues {
-		target := strings.ToLower(issue.Identifier+" "+issue.Title)
+		target := strings.ToLower(issue.Identifier + " " + issue.Title)
 		if matchedTargets[target] {
 			// Only include top-level issues (depth 0) in filtered results
 			if issue.Depth == 0 {
@@ -874,7 +927,7 @@ func (m *model) filterIssuesBySearch(query string) []linear.Issue {
 			}
 		}
 	}
-	
+
 	return filtered
 }
 
@@ -930,6 +983,10 @@ type worktreeCreatedMsg struct {
 	path   string
 }
 
+type branchCreatedMsg struct {
+	branch string
+}
+
 type linearIssuesLoadedMsg struct {
 	issues []linear.Issue
 }
@@ -966,6 +1023,9 @@ func (m model) View() string {
 	}
 
 	if m.Creating {
+		if m.ActiveCreationMode == creationModeBranchOnly {
+			return fmt.Sprintf("%s Creating branch...", m.Spinner.View())
+		}
 		return fmt.Sprintf("%s Creating worktree...", m.Spinner.View())
 	}
 
@@ -975,7 +1035,7 @@ func (m model) View() string {
 
 	s := strings.Builder{}
 	s.WriteString(headerStyle.Render("🌱 sprout"))
-	s.WriteString("\n")
+	s.WriteString("\n\n")
 
 	// Input using textinput component - adjust prompt style based on selection and display search mode appropriately
 	if m.SearchMode {
@@ -1020,13 +1080,26 @@ func (m model) View() string {
 			s.WriteString(helpStyle.Render("No assigned tickets found"))
 		} else {
 			treeView := m.buildSimpleLinearTree()
-			s.WriteString(treeView)
+			if treeView != "" {
+				trimmedTree := strings.TrimRight(treeView, "\n")
+				s.WriteString(trimmedTree)
+				s.WriteString("\n")
+			}
 		}
 	}
 
+	// Display creation mode toggle at the bottom, ensuring we only add a newline if needed
+	if !strings.HasSuffix(s.String(), "\n") {
+		s.WriteString("\n")
+	}
+	modeLabel := "[worktree <tab>]"
+	if m.CreationMode == creationModeBranchOnly {
+		modeLabel = "[branch <tab>]"
+	}
+	s.WriteString(helpStyle.Render(modeLabel))
+
 	return s.String()
 }
-
 
 func (m model) buildSimpleLinearTree() string {
 	// Choose which issues to display based on search mode
@@ -1036,7 +1109,7 @@ func (m model) buildSimpleLinearTree() string {
 	} else {
 		issuesToDisplay = m.LinearIssues
 	}
-	
+
 	if len(issuesToDisplay) == 0 {
 		return ""
 	}
@@ -1051,26 +1124,26 @@ func (m model) buildSimpleLinearTree() string {
 			if identifierWidth > maxIdentifierWidth {
 				maxIdentifierWidth = identifierWidth
 			}
-			
+
 			statusWidth := lipgloss.Width(issue.State.Name)
 			if statusWidth > maxStatusWidth {
 				maxStatusWidth = statusWidth
 			}
-			
+
 			// Check children if not in search mode
 			if !m.SearchMode && len(issue.Children) > 0 {
 				calculateMaxWidths(issue.Children)
 			}
 		}
 	}
-	
+
 	// Calculate max widths from all issues (including nested children)
 	if m.SearchMode {
 		calculateMaxWidths(m.FilteredIssues)
 	} else {
 		calculateMaxWidths(m.LinearIssues)
 	}
-	
+
 	// Create a copy of the model with the calculated max widths
 	mWithWidth := m
 	mWithWidth.MaxIdentifierWidth = maxIdentifierWidth
@@ -1100,19 +1173,19 @@ func (m model) buildSimpleLinearTree() string {
 func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 	// Create the display content
 	title := issue.Title
-	
+
 	// Get status display
 	statusText := issue.State.Name
 	statusStyle := m.getStatusStyle(issue.State)
 	styledStatus := statusStyle.Render(statusText)
-	
+
 	// Calculate available width for title based on terminal size
 	// Account for: identifier, status, spaces, tree symbols, and margins
 	statusWidth := lipgloss.Width(statusText)
 	treePrefixWidth := (issue.Depth + 1) * 3 // Approximate tree prefix width
-	marginWidth := 15 // Safety margin for tree symbols, spacing, and status padding
+	marginWidth := 15                        // Safety margin for tree symbols, spacing, and status padding
 	availableWidth := m.Width - m.MaxIdentifierWidth - m.MaxStatusWidth - treePrefixWidth - marginWidth
-	
+
 	// Ensure minimum width and truncate if necessary
 	if availableWidth < 20 {
 		availableWidth = 20
@@ -1122,18 +1195,18 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 			title = title[:availableWidth-3] + "..."
 		}
 	}
-	
+
 	identifier := identifierStyle.Render(issue.Identifier)
 	titleText := titleStyle.Render(title)
-	
+
 	// Pad identifier to align with the longest identifier
 	identifierPadding := m.MaxIdentifierWidth - lipgloss.Width(identifier)
 	paddedIdentifier := identifier + strings.Repeat(" ", identifierPadding)
-	
+
 	// Pad status to align with the longest status
 	statusPadding := m.MaxStatusWidth - statusWidth
 	paddedStatus := styledStatus + strings.Repeat(" ", statusPadding)
-	
+
 	content := fmt.Sprintf("%s  %s  %s", paddedIdentifier, paddedStatus, titleText)
 
 	// Apply selection styling if this is the selected item
@@ -1149,7 +1222,7 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 		issueNode := tree.New().Root(content).
 			ItemStyle(normalStyle).
 			EnumeratorStyle(expandedStyle)
-		
+
 		// Add actual children
 		for _, child := range issue.Children {
 			m.addIssueNode(issueNode, child)
@@ -1177,7 +1250,7 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 		}
 
 		issueNode.Child(addSubtaskContent)
-		
+
 		// Add the complete subtree to parent
 		parent.Child(issueNode)
 	} else {
@@ -1185,7 +1258,6 @@ func (m model) addIssueNode(parent *tree.Tree, issue linear.Issue) {
 		parent.Child(content)
 	}
 }
-
 
 func RunInteractive() error {
 	m, err := NewTUI()

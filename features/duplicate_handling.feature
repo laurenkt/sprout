@@ -15,6 +15,7 @@ Feature: Sprout duplicate issue handling
 
       > sprout/enter branch name or select suggestion below
       └──TICK-1  In Progress  Parent Task
+      [worktree <tab>]
       """
     When I press "down"
     And I press "right"
@@ -26,6 +27,7 @@ Feature: Sprout duplicate issue handling
       └──TICK-1  In Progress  Parent Task
          ├──TICK-2  Todo         Child Task
          └──+ Add subtask
+      [worktree <tab>]
       """
 
   Scenario: Multiple nested levels only show top-level parents
@@ -43,4 +45,5 @@ Feature: Sprout duplicate issue handling
       > sprout/enter branch name or select suggestion below
       ├──TICK-1  In Progress  Parent Task
       └──TICK-4  In Review    Solo Task
+      [worktree <tab>]
       """

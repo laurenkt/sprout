@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	
+
 	"sprout/pkg/config"
 	"sprout/pkg/github"
 )
@@ -14,6 +14,7 @@ import (
 // WorktreeManagerInterface defines the interface for worktree operations
 type WorktreeManagerInterface interface {
 	CreateWorktree(branchName string) (string, error)
+	CreateBranch(branchName string) error
 	ListWorktrees() ([]Worktree, error)
 	PruneWorktree(branchName string) error
 	PruneAllMerged() error
@@ -29,7 +30,7 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not in a git repository: %w", err)
 	}
-	
+
 	return &WorktreeManager{
 		repoRoot:     repoRoot,
 		githubClient: github.NewClient(repoRoot),
@@ -43,7 +44,7 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 	}
 
 	worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", sanitizedBranchName)
-	
+
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 		return "", fmt.Errorf("failed to create .worktrees directory: %w", err)
 	}
@@ -80,7 +81,7 @@ func (wm *WorktreeManager) createNormalWorktree(worktreePath, branchName string)
 
 	cmd := exec.Command("git", "worktree", "add", worktreePath, "-b", branchName, baseBranch)
 	cmd.Dir = wm.repoRoot
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		if strings.Contains(string(output), "already exists") {
 			return worktreePath, nil
@@ -101,7 +102,7 @@ func (wm *WorktreeManager) createSparseWorktree(worktreePath, branchName string,
 	// Create worktree without checkout
 	cmd := exec.Command("git", "worktree", "add", "--no-checkout", worktreePath, "-b", branchName, baseBranch)
 	cmd.Dir = wm.repoRoot
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		if strings.Contains(string(output), "already exists") {
 			return worktreePath, nil
@@ -112,7 +113,7 @@ func (wm *WorktreeManager) createSparseWorktree(worktreePath, branchName string,
 	// Initialize sparse checkout with cone mode
 	cmd = exec.Command("git", "sparse-checkout", "init", "--cone")
 	cmd.Dir = worktreePath
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		fmt.Printf("Warning: failed to initialize sparse checkout, falling back to normal checkout: %v\nOutput: %s\n", err, string(output))
 		// Fallback: checkout everything
@@ -123,7 +124,7 @@ func (wm *WorktreeManager) createSparseWorktree(worktreePath, branchName string,
 	args := append([]string{"sparse-checkout", "set"}, directories...)
 	cmd = exec.Command("git", args...)
 	cmd.Dir = worktreePath
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		fmt.Printf("Warning: failed to set sparse checkout patterns, falling back to normal checkout: %v\nOutput: %s\n", err, string(output))
 		// Fallback: checkout everything
@@ -133,7 +134,7 @@ func (wm *WorktreeManager) createSparseWorktree(worktreePath, branchName string,
 	// Checkout with sparse patterns applied
 	cmd = exec.Command("git", "checkout")
 	cmd.Dir = worktreePath
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		fmt.Printf("Warning: failed to checkout with sparse patterns, falling back to normal checkout: %v\nOutput: %s\n", err, string(output))
 		// Fallback: checkout everything
@@ -147,7 +148,7 @@ func (wm *WorktreeManager) createSparseWorktree(worktreePath, branchName string,
 func (wm *WorktreeManager) checkoutAll(worktreePath string) (string, error) {
 	cmd := exec.Command("git", "checkout")
 	cmd.Dir = worktreePath
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to checkout: %w\nOutput: %s", err, string(output))
 	}
@@ -160,11 +161,11 @@ func isValidWorktree(path string) bool {
 	if _, err := os.Stat(gitDir); err != nil {
 		return false
 	}
-	
+
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = path
 	output, err := cmd.Output()
-	
+
 	return err == nil && strings.TrimSpace(string(output)) == "true"
 }
 
@@ -174,7 +175,7 @@ func getRepositoryRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	return strings.TrimSpace(string(output)), nil
 }
 
@@ -189,13 +190,13 @@ func GetRepositoryName() (string, error) {
 			return repoName, nil
 		}
 	}
-	
+
 	// Fallback to directory name method
 	repoRoot, err := getRepositoryRoot()
 	if err != nil {
 		return "", err
 	}
-	
+
 	return filepath.Base(repoRoot), nil
 }
 
@@ -223,7 +224,7 @@ func extractRepoNameFromURL(url string) string {
 			}
 		}
 	}
-	
+
 	return ""
 }
 
@@ -237,25 +238,25 @@ type Worktree struct {
 func (wm *WorktreeManager) ListWorktrees() ([]Worktree, error) {
 	cmd := exec.Command("git", "worktree", "list", "--porcelain")
 	cmd.Dir = wm.repoRoot
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list worktrees: %w", err)
 	}
-	
+
 	worktrees := parseWorktreeList(string(output))
-	
+
 	for i := range worktrees {
 		worktrees[i].PRStatus = wm.githubClient.GetPRStatus(worktrees[i].Branch)
 	}
-	
+
 	return worktrees, nil
 }
 
 func parseWorktreeList(output string) []Worktree {
 	var worktrees []Worktree
 	var current Worktree
-	
+
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	for _, line := range lines {
 		if line == "" {
@@ -265,12 +266,12 @@ func parseWorktreeList(output string) []Worktree {
 			}
 			continue
 		}
-		
+
 		parts := strings.SplitN(line, " ", 2)
 		if len(parts) < 2 {
 			continue
 		}
-		
+
 		key, value := parts[0], parts[1]
 		switch key {
 		case "worktree":
@@ -283,11 +284,11 @@ func parseWorktreeList(output string) []Worktree {
 			current.Commit = value
 		}
 	}
-	
+
 	if current.Path != "" {
 		worktrees = append(worktrees, current)
 	}
-	
+
 	return worktrees
 }
 
@@ -326,14 +327,14 @@ func sanitizeBranchName(name string) string {
 	if name == "" {
 		return ""
 	}
-	
+
 	// Convert to lowercase for consistency
 	name = strings.ToLower(name)
-	
+
 	// Replace spaces and other problematic characters with hyphens
 	name = strings.ReplaceAll(name, " ", "-")
 	name = strings.ReplaceAll(name, "_", "-")
-	
+
 	// Remove special characters that aren't allowed in git branch names
 	var result strings.Builder
 	for _, r := range name {
@@ -342,24 +343,24 @@ func sanitizeBranchName(name string) string {
 		}
 	}
 	name = result.String()
-	
+
 	// Remove consecutive hyphens
 	for strings.Contains(name, "--") {
 		name = strings.ReplaceAll(name, "--", "-")
 	}
-	
+
 	// Remove leading/trailing hyphens and dots
 	name = strings.Trim(name, "-.")
-	
+
 	// Ensure it doesn't start with a slash
 	name = strings.TrimPrefix(name, "/")
-	
+
 	// Limit length to reasonable size
 	if len(name) > 100 {
 		name = name[:100]
 		name = strings.TrimSuffix(name, "-")
 	}
-	
+
 	return name
 }
 
@@ -371,7 +372,7 @@ func (wm *WorktreeManager) PruneWorktree(branchName string) error {
 	}
 
 	worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", branchName)
-	
+
 	// Check if worktree exists
 	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
 		return fmt.Errorf("worktree does not exist: %s", branchName)
@@ -380,7 +381,7 @@ func (wm *WorktreeManager) PruneWorktree(branchName string) error {
 	// Remove worktree from git
 	cmd := exec.Command("git", "worktree", "remove", worktreePath, "--force")
 	cmd.Dir = wm.repoRoot
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// If git worktree remove fails, we still want to try to remove the directory
 		fmt.Printf("Warning: git worktree remove failed: %v\nOutput: %s\n", err, string(output))
@@ -395,7 +396,7 @@ func (wm *WorktreeManager) PruneWorktree(branchName string) error {
 	// Delete the branch if it exists and has no commits beyond the base
 	cmd = exec.Command("git", "branch", "-D", branchName)
 	cmd.Dir = wm.repoRoot
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Branch deletion might fail if it doesn't exist or has unmerged changes
 		// This is not necessarily an error, so we just warn
@@ -415,7 +416,7 @@ func (wm *WorktreeManager) PruneAllMerged() error {
 	var mergedWorktrees []Worktree
 	for _, wt := range worktrees {
 		// Skip main/master branches and only include merged PRs
-		if (wt.Branch == "master" || wt.Branch == "main" || wt.Branch == "") {
+		if wt.Branch == "master" || wt.Branch == "main" || wt.Branch == "" {
 			continue
 		}
 		if wt.PRStatus == "Merged" {
@@ -453,5 +454,34 @@ func (wm *WorktreeManager) PruneAllMerged() error {
 	}
 
 	fmt.Printf("\nSuccessfully pruned %d merged worktree(s)\n", len(mergedWorktrees))
+	return nil
+}
+
+// CreateBranch creates a git branch without making a worktree
+func (wm *WorktreeManager) CreateBranch(branchName string) error {
+	sanitizedBranchName := sanitizeBranchName(branchName)
+	if sanitizedBranchName == "" {
+		return fmt.Errorf("branch name results in empty string after sanitization")
+	}
+
+	// Determine the base branch to branch from
+	baseBranch, err := wm.getBaseBranch()
+	if err != nil {
+		return fmt.Errorf("failed to determine base branch: %w", err)
+	}
+
+	// If the branch already exists, treat it as success
+	checkCmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+sanitizedBranchName)
+	checkCmd.Dir = wm.repoRoot
+	if err := checkCmd.Run(); err == nil {
+		return nil
+	}
+
+	cmd := exec.Command("git", "branch", sanitizedBranchName, baseBranch)
+	cmd.Dir = wm.repoRoot
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create branch: %w\nOutput: %s", err, string(output))
+	}
+
 	return nil
 }

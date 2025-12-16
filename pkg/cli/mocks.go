@@ -16,6 +16,10 @@ func (m *MockWorktreeManager) CreateWorktree(branchName string) (string, error) 
 	return "/mock/path/" + branchName, nil
 }
 
+func (m *MockWorktreeManager) CreateBranch(branchName string) error {
+	return nil
+}
+
 func (m *MockWorktreeManager) ListWorktrees() ([]git.Worktree, error) {
 	return m.Worktrees, nil
 }
@@ -72,9 +76,9 @@ func (m *MockLinearClient) TestConnection() error {
 
 // MockConfigPathProvider provides configurable config path and file status for testing
 type MockConfigPathProvider struct {
-	ConfigPath   string
-	FileExists   bool
-	PathError    error
+	ConfigPath string
+	FileExists bool
+	PathError  error
 }
 
 func (p *MockConfigPathProvider) GetConfigPath() (string, error) {

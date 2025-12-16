@@ -22,6 +22,7 @@ Feature: Sprout TUI Navigation
       ├──SPR-2     Todo         Add user authentication
       ├──SPR-124   In Progress  Implement dashboard with analytics and r...
       └──SPR-1234  In Review    Fix critical bug in payment processing
+      [worktree <tab>]
       """
 
   Scenario: Navigate down from input field
@@ -35,6 +36,7 @@ Feature: Sprout TUI Navigation
       ├──SPR-2     Todo         Add user authentication
       ├──SPR-124   In Progress  Implement dashboard with analytics and r...
       └──SPR-1234  In Review    Fix critical bug in payment processing
+      [worktree <tab>]
       """
 
   Scenario: Navigate back up to input field
@@ -49,4 +51,5 @@ Feature: Sprout TUI Navigation
       ├──SPR-2     Todo         Add user authentication
       ├──SPR-124   In Progress  Implement dashboard with analytics and r...
       └──SPR-1234  In Review    Fix critical bug in payment processing
+      [branch <tab>]
       """

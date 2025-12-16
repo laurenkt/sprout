@@ -40,7 +40,7 @@ func (m *MockWorktreeManager) CreateWorktree(branchName string) (string, error) 
 	}
 
 	worktreePath := filepath.Join(filepath.Dir(m.repoRoot), ".worktrees", sanitizedBranchName)
-	
+
 	// Check if worktree already exists
 	for _, wt := range m.worktrees {
 		if wt.Path == worktreePath {
@@ -56,8 +56,16 @@ func (m *MockWorktreeManager) CreateWorktree(branchName string) (string, error) 
 		PRStatus: "",
 	}
 	m.worktrees = append(m.worktrees, newWorktree)
-	
+
 	return worktreePath, nil
+}
+
+// CreateBranch is a no-op mock that tracks the branch creation request
+func (m *MockWorktreeManager) CreateBranch(branchName string) error {
+	if sanitizeBranchName(branchName) == "" {
+		return fmt.Errorf("branch name results in empty string after sanitization")
+	}
+	return nil
 }
 
 // ListWorktrees returns the mock worktree list
