@@ -92,7 +92,12 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
   
   // Linear API key for issue tracking integration
   // Get your key from Linear Settings > Account > Security & Access
-  "linearApiKey": "lin_api_YOUR_KEY_HERE"
+  "linearApiKey": "lin_api_YOUR_KEY_HERE",
+
+  // Optional: override where worktrees are stored per project (by repo name or path)
+  "worktreeBasePaths": {
+    "sprout": "/Users/laurenkt/.worktrees/sprout-worktrees"
+  }
 }
 ```
 
@@ -104,6 +109,7 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
   - `"bash"` - Start a new shell session
   
 - **`linearApiKey`**: Your Linear personal API key for accessing Linear tickets. Required for Linear integration features.
+- **`worktreeBasePaths`**: Map of repository identifiers to the base directory where worktrees are created. Keys can be the repository name (from git remote) or full repository path. If not set, Sprout uses a `.worktrees` directory next to the repository.
 
 ### Linear Integration
 
