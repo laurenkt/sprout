@@ -12,9 +12,10 @@ import (
 )
 
 type Config struct {
-	DefaultCommand  string              `json:"defaultCommand,omitempty"`
-	LinearAPIKey    string              `json:"linearApiKey,omitempty"`
-	SparseCheckout  map[string][]string `json:"sparseCheckout,omitempty"`
+	DefaultCommand    string              `json:"defaultCommand,omitempty"`
+	LinearAPIKey      string              `json:"linearApiKey,omitempty"`
+	SparseCheckout    map[string][]string `json:"sparseCheckout,omitempty"`
+	WorktreeBasePaths map[string]string   `json:"worktreeBasePaths,omitempty"`
 }
 
 // LoaderInterface defines the interface for config loading
@@ -31,11 +32,19 @@ func (dl *DefaultLoader) GetConfig() (*Config, error) {
 	return dl.Config, nil
 }
 
+// FileLoader loads configuration from disk using Load().
+type FileLoader struct{}
+
+func (fl *FileLoader) GetConfig() (*Config, error) {
+	return Load()
+}
+
 func DefaultConfig() *Config {
 	return &Config{
-		DefaultCommand: "",
-		LinearAPIKey:   "",
-		SparseCheckout: make(map[string][]string),
+		DefaultCommand:    "",
+		LinearAPIKey:      "",
+		SparseCheckout:    make(map[string][]string),
+		WorktreeBasePaths: make(map[string]string),
 	}
 }
 
@@ -69,9 +78,10 @@ func Load() (*Config, error) {
 
 	// Check for unknown keys
 	validKeys := map[string]bool{
-		"defaultCommand": true,
-		"linearApiKey":   true,
-		"sparseCheckout": true,
+		"defaultCommand":    true,
+		"linearApiKey":      true,
+		"sparseCheckout":    true,
+		"worktreeBasePaths": true,
 	}
 
 	var unknownKeys []string
@@ -82,7 +92,7 @@ func Load() (*Config, error) {
 	}
 
 	if len(unknownKeys) > 0 {
-		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - linearApiKey: string (API key for Linear integration)\n  - sparseCheckout: object (map of repository paths to directory arrays)", unknownKeys)
+		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - linearApiKey: string (API key for Linear integration)\n  - sparseCheckout: object (map of repository paths to directory arrays)\n  - worktreeBasePaths: object (map of repository names or paths to base worktree directories)", unknownKeys)
 	}
 
 	// Now parse into the actual config struct
@@ -204,11 +214,27 @@ func (c *Config) GetSparseCheckoutDirectories(repoPath string) ([]string, bool) 
 	if c.SparseCheckout == nil {
 		return nil, false
 	}
-	
+
 	directories, exists := c.SparseCheckout[repoPath]
 	if !exists || len(directories) == 0 {
 		return nil, false
 	}
-	
+
 	return directories, true
+}
+
+func (c *Config) GetWorktreeBasePath(repoName, repoRoot string) (string, bool) {
+	if c.WorktreeBasePaths == nil {
+		return "", false
+	}
+
+	// Prefer repo name match, but allow full repo path override too.
+	if basePath, ok := c.WorktreeBasePaths[repoName]; ok && strings.TrimSpace(basePath) != "" {
+		return filepath.Clean(basePath), true
+	}
+	if basePath, ok := c.WorktreeBasePaths[repoRoot]; ok && strings.TrimSpace(basePath) != "" {
+		return filepath.Clean(basePath), true
+	}
+
+	return "", false
 }

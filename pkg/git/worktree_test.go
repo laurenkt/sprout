@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"sprout/pkg/config"
 )
 
 func TestGetBaseBranch(t *testing.T) {
@@ -350,5 +352,91 @@ func TestCreateBranch(t *testing.T) {
 
 	if err := wm.CreateBranch("Feature Branch!"); err != nil {
 		t.Fatalf("Expected CreateBranch to be idempotent, got error: %v", err)
+	}
+}
+
+func TestCreateWorktreeUsesConfiguredBasePath(t *testing.T) {
+	tests := []struct {
+		name      string
+		configKey func(repoRoot, repoName string) string
+	}{
+		{
+			name:      "match by repo name",
+			configKey: func(_ string, repoName string) string { return repoName },
+		},
+		{
+			name:      "match by repo root",
+			configKey: func(repoRoot, _ string) string { return repoRoot },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoRoot := initTestRepo(t)
+			repoName := filepath.Base(repoRoot)
+
+			customBase := filepath.Join(t.TempDir(), "custom-worktrees")
+			cfg := &config.Config{
+				WorktreeBasePaths: map[string]string{
+					tt.configKey(repoRoot, repoName): customBase,
+				},
+			}
+
+			wm := &WorktreeManager{
+				repoRoot:     repoRoot,
+				repoName:     repoName,
+				configLoader: &config.DefaultLoader{Config: cfg},
+			}
+
+			worktreePath, err := wm.CreateWorktree("Feature Branch")
+			if err != nil {
+				t.Fatalf("Failed to create worktree: %v", err)
+			}
+
+			expectedPath := filepath.Join(customBase, "feature-branch")
+			if worktreePath != expectedPath {
+				t.Fatalf("Expected worktree path %s, got %s", expectedPath, worktreePath)
+			}
+
+			if _, err := os.Stat(expectedPath); err != nil {
+				t.Fatalf("Expected worktree directory to exist at %s: %v", expectedPath, err)
+			}
+		})
+	}
+}
+
+func initTestRepo(t *testing.T) string {
+	tempDir, err := os.MkdirTemp("", "sprout-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+
+	t.Cleanup(func() {
+		os.RemoveAll(tempDir)
+		os.RemoveAll(filepath.Join(filepath.Dir(tempDir), ".worktrees"))
+	})
+
+	runGitCommand(t, tempDir, "init")
+	runGitCommand(t, tempDir, "config", "user.email", "test@example.com")
+	runGitCommand(t, tempDir, "config", "user.name", "Test User")
+
+	testFile := filepath.Join(tempDir, "README.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	runGitCommand(t, tempDir, "add", ".")
+	runGitCommand(t, tempDir, "commit", "-m", "Initial commit")
+
+	return tempDir
+}
+
+func runGitCommand(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to run git %v in %s: %v", strings.Join(args, " "), dir, err)
 	}
 }

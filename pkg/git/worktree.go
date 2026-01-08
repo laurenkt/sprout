@@ -22,6 +22,8 @@ type WorktreeManagerInterface interface {
 
 type WorktreeManager struct {
 	repoRoot     string
+	repoName     string
+	configLoader config.LoaderInterface
 	githubClient *github.Client
 }
 
@@ -31,8 +33,15 @@ func NewWorktreeManager() (*WorktreeManager, error) {
 		return nil, fmt.Errorf("not in a git repository: %w", err)
 	}
 
+	repoName, err := GetRepositoryName()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine repository name: %w", err)
+	}
+
 	return &WorktreeManager{
 		repoRoot:     repoRoot,
+		repoName:     repoName,
+		configLoader: &config.FileLoader{},
 		githubClient: github.NewClient(repoRoot),
 	}, nil
 }
@@ -43,10 +52,13 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 		return "", fmt.Errorf("branch name results in empty string after sanitization")
 	}
 
-	worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", sanitizedBranchName)
+	cfg, cfgErr := wm.loadConfig()
+	basePath := wm.getWorktreeBasePath(cfg)
 
-	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
-		return "", fmt.Errorf("failed to create .worktrees directory: %w", err)
+	worktreePath := filepath.Join(basePath, sanitizedBranchName)
+
+	if err := os.MkdirAll(basePath, 0755); err != nil {
+		return "", fmt.Errorf("failed to create worktree base directory: %w", err)
 	}
 
 	if _, err := os.Stat(worktreePath); err == nil {
@@ -56,11 +68,9 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 		return "", fmt.Errorf("directory exists but is not a valid worktree: %s", worktreePath)
 	}
 
-	// Check if sparse checkout is configured for this repository
-	cfg, err := config.Load()
-	if err != nil {
+	if cfgErr != nil {
 		// Log warning but continue with normal worktree creation
-		fmt.Printf("Warning: failed to load config, using normal checkout: %v\n", err)
+		fmt.Printf("Warning: failed to load config, using normal checkout: %v\n", cfgErr)
 		return wm.createNormalWorktree(worktreePath, sanitizedBranchName)
 	}
 
@@ -70,6 +80,24 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 	}
 
 	return wm.createNormalWorktree(worktreePath, sanitizedBranchName)
+}
+
+func (wm *WorktreeManager) loadConfig() (*config.Config, error) {
+	if wm.configLoader != nil {
+		return wm.configLoader.GetConfig()
+	}
+
+	return config.Load()
+}
+
+func (wm *WorktreeManager) getWorktreeBasePath(cfg *config.Config) string {
+	if cfg != nil {
+		if basePath, ok := cfg.GetWorktreeBasePath(wm.repoName, wm.repoRoot); ok {
+			return basePath
+		}
+	}
+
+	return filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees")
 }
 
 func (wm *WorktreeManager) createNormalWorktree(worktreePath, branchName string) (string, error) {
@@ -371,7 +399,12 @@ func (wm *WorktreeManager) PruneWorktree(branchName string) error {
 		return fmt.Errorf("branch name cannot be empty")
 	}
 
-	worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", branchName)
+	cfg, err := wm.loadConfig()
+	if err != nil {
+		fmt.Printf("Warning: failed to load config, using default worktree path: %v\n", err)
+	}
+
+	worktreePath := filepath.Join(wm.getWorktreeBasePath(cfg), branchName)
 
 	// Check if worktree exists
 	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
@@ -413,6 +446,12 @@ func (wm *WorktreeManager) PruneAllMerged() error {
 		return err
 	}
 
+	cfg, cfgErr := wm.loadConfig()
+	if cfgErr != nil {
+		fmt.Printf("Warning: failed to load config, using default worktree path: %v\n", cfgErr)
+	}
+	basePath := wm.getWorktreeBasePath(cfg)
+
 	var mergedWorktrees []Worktree
 	for _, wt := range worktrees {
 		// Skip main/master branches and only include merged PRs
@@ -421,7 +460,7 @@ func (wm *WorktreeManager) PruneAllMerged() error {
 		}
 		if wt.PRStatus == "Merged" {
 			// Check if worktree directory actually exists
-			worktreePath := filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees", wt.Branch)
+			worktreePath := filepath.Join(basePath, wt.Branch)
 			if _, err := os.Stat(worktreePath); err == nil {
 				mergedWorktrees = append(mergedWorktrees, wt)
 			}
