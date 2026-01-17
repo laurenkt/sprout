@@ -83,24 +83,30 @@ func TestGetWorktreeBasePath(t *testing.T) {
 	repoBasePath := filepath.Dir(repoRoot)
 
 	cfg := &Config{
-		WorktreeBasePath: "$REPO_BASEPATH/.worktrees/$REPO_NAME",
+		WorktreeBasePath: "$REPO_BASEPATH/.worktrees/$REPO_NAME/$BRANCH_NAME",
 	}
 
-	path, ok := cfg.GetWorktreeBasePath(repoName, repoRoot)
+	path, includesBranch, ok := cfg.GetWorktreeBasePath(repoName, repoRoot, "feature-branch")
 	if !ok {
 		t.Fatalf("expected worktree base path to be found for global config")
 	}
+	if !includesBranch {
+		t.Fatalf("expected global config to include branch variable")
+	}
 
-	expectedPath := filepath.Clean(filepath.Join(repoBasePath, ".worktrees", repoName))
+	expectedPath := filepath.Clean(filepath.Join(repoBasePath, ".worktrees", repoName, "feature-branch"))
 	if path != expectedPath {
 		t.Fatalf("expected path %s, got %s", expectedPath, path)
 	}
 
 	cfg = &Config{WorktreeBasePath: "/Users/test/.worktrees/global"}
 
-	path, ok = cfg.GetWorktreeBasePath(repoName, repoRoot)
+	path, includesBranch, ok = cfg.GetWorktreeBasePath(repoName, repoRoot, "feature-branch")
 	if !ok {
 		t.Fatalf("expected worktree base path to be found for global config")
+	}
+	if includesBranch {
+		t.Fatalf("did not expect global config to include branch variable")
 	}
 
 	if path != "/Users/test/.worktrees/global" {
@@ -108,7 +114,7 @@ func TestGetWorktreeBasePath(t *testing.T) {
 	}
 
 	emptyCfg := &Config{}
-	if _, ok := emptyCfg.GetWorktreeBasePath(repoName, repoRoot); ok {
+	if _, _, ok := emptyCfg.GetWorktreeBasePath(repoName, repoRoot, "feature-branch"); ok {
 		t.Fatalf("expected no base path for empty config")
 	}
 }
@@ -120,9 +126,12 @@ func TestGetWorktreeBasePathFallsBackToLegacyMap(t *testing.T) {
 		},
 	}
 
-	path, ok := cfg.GetWorktreeBasePath("sprout", "/Users/test/sprout")
+	path, includesBranch, ok := cfg.GetWorktreeBasePath("sprout", "/Users/test/sprout", "feature-branch")
 	if !ok {
 		t.Fatalf("expected worktree base path to be found for repo name")
+	}
+	if includesBranch {
+		t.Fatalf("did not expect legacy config to include branch variable")
 	}
 
 	expectedPath := filepath.Clean("/Users/test/.worktrees/sprout-worktrees/")

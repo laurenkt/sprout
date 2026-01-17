@@ -226,32 +226,32 @@ func (c *Config) GetSparseCheckoutDirectories(repoPath string) ([]string, bool) 
 	return directories, true
 }
 
-func (c *Config) GetWorktreeBasePath(repoName, repoRoot string) (string, bool) {
+func (c *Config) GetWorktreeBasePath(repoName, repoRoot, branchName string) (string, bool, bool) {
 	if c == nil {
-		return "", false
+		return "", false, false
 	}
 
 	if strings.TrimSpace(c.WorktreeBasePath) != "" {
-		expanded := expandWorktreeBasePath(c.WorktreeBasePath, repoName, repoRoot)
-		return filepath.Clean(expanded), true
+		expanded := expandWorktreeBasePath(c.WorktreeBasePath, repoName, repoRoot, branchName)
+		return filepath.Clean(expanded), containsBranchVariable(c.WorktreeBasePath), true
 	}
 
 	if c.WorktreeBasePaths == nil {
-		return "", false
+		return "", false, false
 	}
 
 	// Prefer repo name match, but allow full repo path override too.
 	if basePath, ok := c.WorktreeBasePaths[repoName]; ok && strings.TrimSpace(basePath) != "" {
-		return filepath.Clean(expandWorktreeBasePath(basePath, repoName, repoRoot)), true
+		return filepath.Clean(expandWorktreeBasePath(basePath, repoName, repoRoot, branchName)), containsBranchVariable(basePath), true
 	}
 	if basePath, ok := c.WorktreeBasePaths[repoRoot]; ok && strings.TrimSpace(basePath) != "" {
-		return filepath.Clean(expandWorktreeBasePath(basePath, repoName, repoRoot)), true
+		return filepath.Clean(expandWorktreeBasePath(basePath, repoName, repoRoot, branchName)), containsBranchVariable(basePath), true
 	}
 
-	return "", false
+	return "", false, false
 }
 
-func expandWorktreeBasePath(value, repoName, repoRoot string) string {
+func expandWorktreeBasePath(value, repoName, repoRoot, branchName string) string {
 	repoBasePath := filepath.Dir(repoRoot)
 	return os.Expand(value, func(key string) string {
 		switch key {
@@ -259,8 +259,14 @@ func expandWorktreeBasePath(value, repoName, repoRoot string) string {
 			return repoBasePath
 		case "REPO_NAME":
 			return repoName
+		case "BRANCH_NAME":
+			return branchName
 		default:
 			return os.Getenv(key)
 		}
 	})
+}
+
+func containsBranchVariable(value string) bool {
+	return strings.Contains(value, "$BRANCH_NAME") || strings.Contains(value, "${BRANCH_NAME}")
 }
