@@ -78,6 +78,42 @@ func TestGetDefaultCommand(t *testing.T) {
 }
 
 func TestGetWorktreeBasePath(t *testing.T) {
+	repoRoot := "/Users/test/sprout"
+	repoName := "sprout"
+	repoBasePath := filepath.Dir(repoRoot)
+
+	cfg := &Config{
+		WorktreeBasePath: "$REPO_BASEPATH/.worktrees/$REPO_NAME",
+	}
+
+	path, ok := cfg.GetWorktreeBasePath(repoName, repoRoot)
+	if !ok {
+		t.Fatalf("expected worktree base path to be found for global config")
+	}
+
+	expectedPath := filepath.Clean(filepath.Join(repoBasePath, ".worktrees", repoName))
+	if path != expectedPath {
+		t.Fatalf("expected path %s, got %s", expectedPath, path)
+	}
+
+	cfg = &Config{WorktreeBasePath: "/Users/test/.worktrees/global"}
+
+	path, ok = cfg.GetWorktreeBasePath(repoName, repoRoot)
+	if !ok {
+		t.Fatalf("expected worktree base path to be found for global config")
+	}
+
+	if path != "/Users/test/.worktrees/global" {
+		t.Fatalf("expected path /Users/test/.worktrees/global, got %s", path)
+	}
+
+	emptyCfg := &Config{}
+	if _, ok := emptyCfg.GetWorktreeBasePath(repoName, repoRoot); ok {
+		t.Fatalf("expected no base path for empty config")
+	}
+}
+
+func TestGetWorktreeBasePathFallsBackToLegacyMap(t *testing.T) {
 	cfg := &Config{
 		WorktreeBasePaths: map[string]string{
 			"sprout": "/Users/test/.worktrees/sprout-worktrees/",
@@ -92,25 +128,5 @@ func TestGetWorktreeBasePath(t *testing.T) {
 	expectedPath := filepath.Clean("/Users/test/.worktrees/sprout-worktrees/")
 	if path != expectedPath {
 		t.Fatalf("expected path %s, got %s", expectedPath, path)
-	}
-
-	cfg = &Config{
-		WorktreeBasePaths: map[string]string{
-			"/Users/test/sprout": "/Users/test/.worktrees/sprout-worktrees",
-		},
-	}
-
-	path, ok = cfg.GetWorktreeBasePath("sprout", "/Users/test/sprout")
-	if !ok {
-		t.Fatalf("expected worktree base path to be found for repo root")
-	}
-
-	if path != "/Users/test/.worktrees/sprout-worktrees" {
-		t.Fatalf("expected path /Users/test/.worktrees/sprout-worktrees, got %s", path)
-	}
-
-	emptyCfg := &Config{}
-	if _, ok := emptyCfg.GetWorktreeBasePath("sprout", "/Users/test/sprout"); ok {
-		t.Fatalf("expected no base path for empty config")
 	}
 }
