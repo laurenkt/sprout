@@ -356,32 +356,53 @@ func TestCreateBranch(t *testing.T) {
 }
 
 func TestCreateWorktreeUsesConfiguredBasePath(t *testing.T) {
-	repoRoot := initTestRepo(t)
-	repoName := filepath.Base(repoRoot)
-
-	customBase := filepath.Join(t.TempDir(), "custom-worktrees")
-	cfg := &config.Config{
-		WorktreeBasePath: filepath.Join(customBase, "$REPO_NAME"),
+	tests := []struct {
+		name     string
+		template string
+		expected string
+	}{
+		{
+			name:     "template excludes branch variable",
+			template: filepath.Join("custom-worktrees", "$REPO_NAME"),
+			expected: filepath.Join("custom-worktrees", "sprout", "feature-branch"),
+		},
+		{
+			name:     "template includes branch variable",
+			template: filepath.Join("custom-worktrees", "$REPO_NAME", "${BRANCH_NAME}-worktree"),
+			expected: filepath.Join("custom-worktrees", "sprout", "feature-branch-worktree"),
+		},
 	}
 
-	wm := &WorktreeManager{
-		repoRoot:     repoRoot,
-		repoName:     repoName,
-		configLoader: &config.DefaultLoader{Config: cfg},
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoRoot := initTestRepo(t)
+			repoName := filepath.Base(repoRoot)
 
-	worktreePath, err := wm.CreateWorktree("Feature Branch")
-	if err != nil {
-		t.Fatalf("Failed to create worktree: %v", err)
-	}
+			customBase := t.TempDir()
+			cfg := &config.Config{
+				WorktreeBasePath: filepath.Join(customBase, tt.template),
+			}
 
-	expectedPath := filepath.Join(customBase, repoName, "feature-branch")
-	if worktreePath != expectedPath {
-		t.Fatalf("Expected worktree path %s, got %s", expectedPath, worktreePath)
-	}
+			wm := &WorktreeManager{
+				repoRoot:     repoRoot,
+				repoName:     repoName,
+				configLoader: &config.DefaultLoader{Config: cfg},
+			}
 
-	if _, err := os.Stat(expectedPath); err != nil {
-		t.Fatalf("Expected worktree directory to exist at %s: %v", expectedPath, err)
+			worktreePath, err := wm.CreateWorktree("Feature Branch")
+			if err != nil {
+				t.Fatalf("Failed to create worktree: %v", err)
+			}
+
+			expectedPath := filepath.Join(customBase, strings.ReplaceAll(tt.expected, "sprout", repoName))
+			if worktreePath != expectedPath {
+				t.Fatalf("Expected worktree path %s, got %s", expectedPath, worktreePath)
+			}
+
+			if _, err := os.Stat(expectedPath); err != nil {
+				t.Fatalf("Expected worktree directory to exist at %s: %v", expectedPath, err)
+			}
+		})
 	}
 }
 

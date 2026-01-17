@@ -53,11 +53,9 @@ func (wm *WorktreeManager) CreateWorktree(branchName string) (string, error) {
 	}
 
 	cfg, cfgErr := wm.loadConfig()
-	basePath := wm.getWorktreeBasePath(cfg)
+	worktreePath := wm.resolveWorktreePath(cfg, sanitizedBranchName)
 
-	worktreePath := filepath.Join(basePath, sanitizedBranchName)
-
-	if err := os.MkdirAll(basePath, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 		return "", fmt.Errorf("failed to create worktree base directory: %w", err)
 	}
 
@@ -90,14 +88,22 @@ func (wm *WorktreeManager) loadConfig() (*config.Config, error) {
 	return config.Load()
 }
 
-func (wm *WorktreeManager) getWorktreeBasePath(cfg *config.Config) string {
+func (wm *WorktreeManager) getWorktreeBasePath(cfg *config.Config, branchName string) (string, bool) {
 	if cfg != nil {
-		if basePath, ok := cfg.GetWorktreeBasePath(wm.repoName, wm.repoRoot); ok {
-			return basePath
+		if basePath, includesBranch, ok := cfg.GetWorktreeBasePath(wm.repoName, wm.repoRoot, branchName); ok {
+			return basePath, includesBranch
 		}
 	}
 
-	return filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees")
+	return filepath.Join(filepath.Dir(wm.repoRoot), ".worktrees"), false
+}
+
+func (wm *WorktreeManager) resolveWorktreePath(cfg *config.Config, branchName string) string {
+	basePath, includesBranch := wm.getWorktreeBasePath(cfg, branchName)
+	if includesBranch {
+		return basePath
+	}
+	return filepath.Join(basePath, branchName)
 }
 
 func (wm *WorktreeManager) createNormalWorktree(worktreePath, branchName string) (string, error) {
@@ -404,7 +410,7 @@ func (wm *WorktreeManager) PruneWorktree(branchName string) error {
 		fmt.Printf("Warning: failed to load config, using default worktree path: %v\n", err)
 	}
 
-	worktreePath := filepath.Join(wm.getWorktreeBasePath(cfg), branchName)
+	worktreePath := wm.resolveWorktreePath(cfg, branchName)
 
 	// Check if worktree exists
 	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
@@ -450,7 +456,6 @@ func (wm *WorktreeManager) PruneAllMerged() error {
 	if cfgErr != nil {
 		fmt.Printf("Warning: failed to load config, using default worktree path: %v\n", cfgErr)
 	}
-	basePath := wm.getWorktreeBasePath(cfg)
 
 	var mergedWorktrees []Worktree
 	for _, wt := range worktrees {
@@ -460,7 +465,7 @@ func (wm *WorktreeManager) PruneAllMerged() error {
 		}
 		if wt.PRStatus == "Merged" {
 			// Check if worktree directory actually exists
-			worktreePath := filepath.Join(basePath, wt.Branch)
+			worktreePath := wm.resolveWorktreePath(cfg, wt.Branch)
 			if _, err := os.Stat(worktreePath); err == nil {
 				mergedWorktrees = append(mergedWorktrees, wt)
 			}

@@ -95,8 +95,8 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
   "linearApiKey": "lin_api_YOUR_KEY_HERE",
 
   // Optional: override where worktrees are stored for all repositories
-  // Variables: $REPO_BASEPATH (parent directory of repo), $REPO_NAME
-  "worktreeBasePath": "$REPO_BASEPATH/.worktrees/$REPO_NAME"
+  // Variables: $REPO_BASEPATH (parent directory of repo), $REPO_NAME, $BRANCH_NAME
+  "worktreeBasePath": "$REPO_BASEPATH/.worktrees/$REPO_NAME/$BRANCH_NAME"
 }
 ```
 
@@ -108,7 +108,7 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
   - `"bash"` - Start a new shell session
   
 - **`linearApiKey`**: Your Linear personal API key for accessing Linear tickets. Required for Linear integration features.
-- **`worktreeBasePath`**: Base directory where worktrees are created for all repositories. Supports `$REPO_BASEPATH` (parent directory of the repo) and `$REPO_NAME`. If not set, Sprout uses a `.worktrees` directory next to the repository.
+- **`worktreeBasePath`**: Base directory where worktrees are created for all repositories. Supports `$REPO_BASEPATH` (parent directory of the repo), `$REPO_NAME`, and `$BRANCH_NAME`. If `$BRANCH_NAME` is included, the template is treated as the full worktree path; otherwise the branch name is appended. If not set, Sprout uses a `.worktrees` directory next to the repository.
 
 ### Linear Integration
 
