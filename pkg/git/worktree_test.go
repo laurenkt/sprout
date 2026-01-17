@@ -356,52 +356,32 @@ func TestCreateBranch(t *testing.T) {
 }
 
 func TestCreateWorktreeUsesConfiguredBasePath(t *testing.T) {
-	tests := []struct {
-		name      string
-		configKey func(repoRoot, repoName string) string
-	}{
-		{
-			name:      "match by repo name",
-			configKey: func(_ string, repoName string) string { return repoName },
-		},
-		{
-			name:      "match by repo root",
-			configKey: func(repoRoot, _ string) string { return repoRoot },
-		},
+	repoRoot := initTestRepo(t)
+	repoName := filepath.Base(repoRoot)
+
+	customBase := filepath.Join(t.TempDir(), "custom-worktrees")
+	cfg := &config.Config{
+		WorktreeBasePath: filepath.Join(customBase, "$REPO_NAME"),
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repoRoot := initTestRepo(t)
-			repoName := filepath.Base(repoRoot)
+	wm := &WorktreeManager{
+		repoRoot:     repoRoot,
+		repoName:     repoName,
+		configLoader: &config.DefaultLoader{Config: cfg},
+	}
 
-			customBase := filepath.Join(t.TempDir(), "custom-worktrees")
-			cfg := &config.Config{
-				WorktreeBasePaths: map[string]string{
-					tt.configKey(repoRoot, repoName): customBase,
-				},
-			}
+	worktreePath, err := wm.CreateWorktree("Feature Branch")
+	if err != nil {
+		t.Fatalf("Failed to create worktree: %v", err)
+	}
 
-			wm := &WorktreeManager{
-				repoRoot:     repoRoot,
-				repoName:     repoName,
-				configLoader: &config.DefaultLoader{Config: cfg},
-			}
+	expectedPath := filepath.Join(customBase, repoName, "feature-branch")
+	if worktreePath != expectedPath {
+		t.Fatalf("Expected worktree path %s, got %s", expectedPath, worktreePath)
+	}
 
-			worktreePath, err := wm.CreateWorktree("Feature Branch")
-			if err != nil {
-				t.Fatalf("Failed to create worktree: %v", err)
-			}
-
-			expectedPath := filepath.Join(customBase, "feature-branch")
-			if worktreePath != expectedPath {
-				t.Fatalf("Expected worktree path %s, got %s", expectedPath, worktreePath)
-			}
-
-			if _, err := os.Stat(expectedPath); err != nil {
-				t.Fatalf("Expected worktree directory to exist at %s: %v", expectedPath, err)
-			}
-		})
+	if _, err := os.Stat(expectedPath); err != nil {
+		t.Fatalf("Expected worktree directory to exist at %s: %v", expectedPath, err)
 	}
 }
 

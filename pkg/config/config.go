@@ -15,6 +15,7 @@ type Config struct {
 	DefaultCommand    string              `json:"defaultCommand,omitempty"`
 	LinearAPIKey      string              `json:"linearApiKey,omitempty"`
 	SparseCheckout    map[string][]string `json:"sparseCheckout,omitempty"`
+	WorktreeBasePath  string              `json:"worktreeBasePath,omitempty"`
 	WorktreeBasePaths map[string]string   `json:"worktreeBasePaths,omitempty"`
 }
 
@@ -44,6 +45,7 @@ func DefaultConfig() *Config {
 		DefaultCommand:    "",
 		LinearAPIKey:      "",
 		SparseCheckout:    make(map[string][]string),
+		WorktreeBasePath:  "",
 		WorktreeBasePaths: make(map[string]string),
 	}
 }
@@ -81,6 +83,7 @@ func Load() (*Config, error) {
 		"defaultCommand":    true,
 		"linearApiKey":      true,
 		"sparseCheckout":    true,
+		"worktreeBasePath":  true,
 		"worktreeBasePaths": true,
 	}
 
@@ -92,7 +95,7 @@ func Load() (*Config, error) {
 	}
 
 	if len(unknownKeys) > 0 {
-		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - linearApiKey: string (API key for Linear integration)\n  - sparseCheckout: object (map of repository paths to directory arrays)\n  - worktreeBasePaths: object (map of repository names or paths to base worktree directories)", unknownKeys)
+		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - linearApiKey: string (API key for Linear integration)\n  - sparseCheckout: object (map of repository paths to directory arrays)\n  - worktreeBasePath: string (base worktree directory with optional variables)\n  - worktreeBasePaths: object (deprecated: map of repository names or paths to base worktree directories)", unknownKeys)
 	}
 
 	// Now parse into the actual config struct
@@ -224,17 +227,40 @@ func (c *Config) GetSparseCheckoutDirectories(repoPath string) ([]string, bool) 
 }
 
 func (c *Config) GetWorktreeBasePath(repoName, repoRoot string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+
+	if strings.TrimSpace(c.WorktreeBasePath) != "" {
+		expanded := expandWorktreeBasePath(c.WorktreeBasePath, repoName, repoRoot)
+		return filepath.Clean(expanded), true
+	}
+
 	if c.WorktreeBasePaths == nil {
 		return "", false
 	}
 
 	// Prefer repo name match, but allow full repo path override too.
 	if basePath, ok := c.WorktreeBasePaths[repoName]; ok && strings.TrimSpace(basePath) != "" {
-		return filepath.Clean(basePath), true
+		return filepath.Clean(expandWorktreeBasePath(basePath, repoName, repoRoot)), true
 	}
 	if basePath, ok := c.WorktreeBasePaths[repoRoot]; ok && strings.TrimSpace(basePath) != "" {
-		return filepath.Clean(basePath), true
+		return filepath.Clean(expandWorktreeBasePath(basePath, repoName, repoRoot)), true
 	}
 
 	return "", false
+}
+
+func expandWorktreeBasePath(value, repoName, repoRoot string) string {
+	repoBasePath := filepath.Dir(repoRoot)
+	return os.Expand(value, func(key string) string {
+		switch key {
+		case "REPO_BASEPATH":
+			return repoBasePath
+		case "REPO_NAME":
+			return repoName
+		default:
+			return os.Getenv(key)
+		}
+	})
 }
