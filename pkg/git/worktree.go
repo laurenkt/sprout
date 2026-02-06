@@ -327,34 +327,77 @@ func parseWorktreeList(output string) []Worktree {
 }
 
 func (wm *WorktreeManager) getBaseBranch() (string, error) {
+	defaultBranch, err := wm.getRemoteDefaultBranch()
+	if err == nil && defaultBranch != "" {
+		_ = wm.fetchRemoteBranch(defaultBranch)
+		if wm.branchExists("refs/remotes/origin/" + defaultBranch) {
+			return "origin/" + defaultBranch, nil
+		}
+		if wm.branchExists("refs/heads/" + defaultBranch) {
+			return defaultBranch, nil
+		}
+	}
+
 	// Check if 'main' branch exists
-	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/main")
-	cmd.Dir = wm.repoRoot
-	if err := cmd.Run(); err == nil {
+	if wm.branchExists("refs/heads/main") {
 		return "main", nil
 	}
 
 	// Check if 'master' branch exists
-	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/master")
-	cmd.Dir = wm.repoRoot
-	if err := cmd.Run(); err == nil {
+	if wm.branchExists("refs/heads/master") {
 		return "master", nil
 	}
 
 	// Also check remote branches in case we haven't fetched yet
-	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/main")
-	cmd.Dir = wm.repoRoot
-	if err := cmd.Run(); err == nil {
+	if wm.branchExists("refs/remotes/origin/main") {
 		return "origin/main", nil
 	}
 
-	cmd = exec.Command("git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/master")
-	cmd.Dir = wm.repoRoot
-	if err := cmd.Run(); err == nil {
+	if wm.branchExists("refs/remotes/origin/master") {
 		return "origin/master", nil
 	}
 
-	return "", fmt.Errorf("neither 'main' nor 'master' branch found")
+	return "", fmt.Errorf("no base branch found in local or origin refs")
+}
+
+func (wm *WorktreeManager) branchExists(ref string) bool {
+	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", ref)
+	cmd.Dir = wm.repoRoot
+	return cmd.Run() == nil
+}
+
+func (wm *WorktreeManager) getRemoteDefaultBranch() (string, error) {
+	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Dir = wm.repoRoot
+	if output, err := cmd.Output(); err == nil {
+		ref := strings.TrimSpace(string(output))
+		const prefix = "refs/remotes/origin/"
+		if strings.HasPrefix(ref, prefix) {
+			return strings.TrimPrefix(ref, prefix), nil
+		}
+	}
+
+	cmd = exec.Command("git", "remote", "show", "origin")
+	cmd.Dir = wm.repoRoot
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "HEAD branch:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "HEAD branch:")), nil
+		}
+	}
+
+	return "", fmt.Errorf("origin default branch not found")
+}
+
+func (wm *WorktreeManager) fetchRemoteBranch(branchName string) error {
+	cmd := exec.Command("git", "fetch", "origin", branchName)
+	cmd.Dir = wm.repoRoot
+	return cmd.Run()
 }
 
 func sanitizeBranchName(name string) string {
