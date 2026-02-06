@@ -120,6 +120,11 @@ func TestGetBaseBranch(t *testing.T) {
 			t.Fatalf("Failed to push: %v", err)
 		}
 
+		cmd = exec.Command("git", "--git-dir", remoteDir, "symbolic-ref", "HEAD", "refs/heads/main")
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("Failed to set remote HEAD: %v", err)
+		}
+
 		// Delete local branch
 		cmd = exec.Command("git", "checkout", "--detach")
 		cmd.Dir = tempDir
