@@ -62,3 +62,30 @@ Feature: Sprout TUI Interaction
 
       Press any key to exit.
       """
+    And the following commands should be run:
+      | command                    |
+      | git checkout -b my-feature |
+
+  Scenario: Create a worktree from selected issue
+    Given I start the Sprout TUI
+    When I press "down"
+    And I press "enter"
+    Then the UI should display:
+      """
+      ✓ Worktree created at: /mock/worktrees/spr-123-add-user-authentication
+
+      Press any key to exit.
+      """
+    And the following commands should be run:
+      | command                                                                                                       |
+      | git worktree add /mock/worktrees/spr-123-add-user-authentication -b spr-123-add-user-authentication main |
+
+  Scenario: Run configured post-create command after creating worktree
+    Given the default worktree command is "code ."
+    And I start the Sprout TUI
+    When I press "down"
+    And I press "enter"
+    Then the following commands should be run:
+      | command                                                                                                       |
+      | git worktree add /mock/worktrees/spr-123-add-user-authentication -b spr-123-add-user-authentication main |
+      | cd /mock/worktrees/spr-123-add-user-authentication && code .                                           |
