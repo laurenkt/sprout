@@ -21,6 +21,9 @@ type TUITestContext struct {
 	testModel           *teatest.TestModel
 	fakeClient          *linear.FakeLinearClient
 	fakeWorktreeManager *testWorktreeManager
+	defaultWorktreeCmd  string
+	postCreateRuns      []string
+	postCreateRan       bool
 	t                   *testing.T
 	terminalWidth       int
 	terminalHeight      int
@@ -31,6 +34,9 @@ func NewTUITestContext(t *testing.T) *TUITestContext {
 	return &TUITestContext{
 		fakeClient:          linear.NewFakeLinearClient(),
 		fakeWorktreeManager: &testWorktreeManager{},
+		defaultWorktreeCmd:  "",
+		postCreateRuns:      nil,
+		postCreateRan:       false,
 		t:                   t,
 		terminalWidth:       80, // Default width
 		terminalHeight:      24, // Default height
@@ -41,6 +47,7 @@ func NewTUITestContext(t *testing.T) *TUITestContext {
 type testWorktreeManager struct {
 	lastCreatedWorktree string
 	lastCreatedBranch   string
+	gitCommands         []string
 }
 
 func (m *testWorktreeManager) CreateWorktree(branchName string) (string, error) {
@@ -48,6 +55,7 @@ func (m *testWorktreeManager) CreateWorktree(branchName string) (string, error) 
 		return "", fmt.Errorf("branch name required")
 	}
 	m.lastCreatedWorktree = branchName
+	m.gitCommands = append(m.gitCommands, fmt.Sprintf("git worktree add /mock/worktrees/%s -b %s main", branchName, branchName))
 	return "/mock/worktrees/" + branchName, nil
 }
 
@@ -56,6 +64,7 @@ func (m *testWorktreeManager) CreateBranch(branchName string) error {
 		return fmt.Errorf("branch name required")
 	}
 	m.lastCreatedBranch = branchName
+	m.gitCommands = append(m.gitCommands, fmt.Sprintf("git checkout -b %s", branchName))
 	return nil
 }
 
@@ -269,10 +278,6 @@ func (tc *TUITestContext) iPress(key string) error {
 		return fmt.Errorf("unknown key: %s", key)
 	}
 
-	if tc.testModel != nil {
-		tc.testModel.Send(keyMsg)
-	}
-
 	// Update our local model reference and execute any returned commands
 	updatedModel, cmd := tc.model.Update(keyMsg)
 	tc.model = updatedModel.(model)
@@ -286,10 +291,6 @@ func (tc *TUITestContext) iType(text string) error {
 	// Send each character as a separate key event
 	for _, char := range text {
 		keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{char}}
-
-		if tc.testModel != nil {
-			tc.testModel.Send(keyMsg)
-		}
 
 		// Update our local model reference and execute any returned commands
 		updatedModel, cmd := tc.model.Update(keyMsg)
@@ -327,6 +328,22 @@ func (tc *TUITestContext) processMsg(msg tea.Msg) {
 
 	updatedModel, _ := tc.model.Update(msg)
 	tc.model = updatedModel.(model)
+	tc.maybeRunPostCreateCommand()
+}
+
+func (tc *TUITestContext) maybeRunPostCreateCommand() {
+	if tc.postCreateRan {
+		return
+	}
+	if tc.defaultWorktreeCmd == "" {
+		return
+	}
+	if !tc.model.Done || !tc.model.Success || tc.model.WorktreePath == "" {
+		return
+	}
+
+	tc.postCreateRuns = append(tc.postCreateRuns, fmt.Sprintf("cd %s && %s", tc.model.WorktreePath, tc.defaultWorktreeCmd))
+	tc.postCreateRan = true
 }
 
 func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
@@ -499,6 +516,57 @@ func (tc *TUITestContext) theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidt
 	return nil
 }
 
+func (tc *TUITestContext) parseExpectedCommands(commandsTable *godog.Table) ([]string, error) {
+	var expected []string
+	for i, row := range commandsTable.Rows {
+		if i == 0 { // Skip header row
+			continue
+		}
+		if len(row.Cells) == 0 {
+			return nil, fmt.Errorf("expected command row %d to have at least one cell", i)
+		}
+		expected = append(expected, strings.TrimSpace(row.Cells[0].Value))
+	}
+
+	return expected, nil
+}
+
+func (tc *TUITestContext) allRecordedCommands() []string {
+	commands := make([]string, 0, len(tc.fakeWorktreeManager.gitCommands)+len(tc.postCreateRuns))
+	commands = append(commands, tc.fakeWorktreeManager.gitCommands...)
+	commands = append(commands, tc.postCreateRuns...)
+	return commands
+}
+
+func (tc *TUITestContext) theFollowingCommandsShouldBeRun(commandsTable *godog.Table) error {
+	if tc.fakeWorktreeManager == nil {
+		return fmt.Errorf("worktree manager not initialized")
+	}
+
+	expected, err := tc.parseExpectedCommands(commandsTable)
+	if err != nil {
+		return err
+	}
+
+	actual := tc.allRecordedCommands()
+	if len(actual) != len(expected) {
+		return fmt.Errorf("command count mismatch:\nExpected: %d\nActual: %d\nExpected commands: %v\nActual commands: %v", len(expected), len(actual), expected, actual)
+	}
+
+	for i := range expected {
+		if actual[i] != expected[i] {
+			return fmt.Errorf("command mismatch at index %d:\nExpected: %s\nActual: %s", i, expected[i], actual[i])
+		}
+	}
+
+	return nil
+}
+
+func (tc *TUITestContext) theDefaultWorktreeCommandIs(command string) error {
+	tc.defaultWorktreeCmd = strings.TrimSpace(command)
+	return nil
+}
+
 // InitializeScenario initializes godog with our step definitions
 func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	tc := NewTUITestContext(t)
@@ -507,6 +575,9 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 		tc.fakeClient = linear.NewFakeLinearClient()
 		tc.fakeWorktreeManager = &testWorktreeManager{}
+		tc.defaultWorktreeCmd = ""
+		tc.postCreateRuns = nil
+		tc.postCreateRan = false
 		tc.t = t              // Ensure t is set for each scenario
 		tc.terminalWidth = 80 // Reset to default
 		tc.terminalHeight = 24
@@ -520,6 +591,8 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Step(`^I press "([^"]*)"$`, tc.iPress)
 	ctx.Step(`^I type "([^"]*)"$`, tc.iType)
 	ctx.Step(`^the UI should display:$`, tc.theUIShouldDisplay)
+	ctx.Step(`^the following commands should be run:$`, tc.theFollowingCommandsShouldBeRun)
+	ctx.Step(`^the default worktree command is "([^"]*)"$`, tc.theDefaultWorktreeCommandIs)
 	ctx.Step(`^the UI should display titles truncated to fit the available width$`, tc.theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidth)
 }
 
