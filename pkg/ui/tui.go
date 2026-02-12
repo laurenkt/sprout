@@ -51,6 +51,13 @@ type model struct {
 	MaxStatusWidth     int            // maximum width of issue statuses for alignment
 	CreationMode       creationMode   // user-selected creation mode
 	ActiveCreationMode creationMode   // creation mode currently executing
+	LastUnassigned     *unassignedIssueSnapshot
+}
+
+type unassignedIssueSnapshot struct {
+	Issue    linear.Issue
+	ParentID string
+	Index    int
 }
 
 type creationMode int
@@ -246,6 +253,7 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		Height:             24, // Default, will be updated when we get window size
 		CreationMode:       creationModeWorktree,
 		ActiveCreationMode: creationModeWorktree,
+		LastUnassigned:     nil,
 	}, nil
 }
 
@@ -596,6 +604,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyRunes:
+			if !m.Submitted && !m.SubtaskInputMode && !m.SearchMode && len(msg.Runes) == 1 {
+				switch msg.Runes[0] {
+				case 'u', 'U':
+					if m.SelectedIssue != nil && m.LinearClient != nil {
+						return m, m.unassignIssue(m.SelectedIssue.ID)
+					}
+				case 'z', 'Z':
+					if m.LastUnassigned != nil && m.LinearClient != nil {
+						return m, m.assignIssueToMe(m.LastUnassigned.Issue.ID)
+					}
+				}
+			}
+
 			// Handle "/" key to enter search mode
 			if !m.Submitted && !m.SubtaskInputMode && len(msg.Runes) == 1 && msg.Runes[0] == '/' {
 				if !m.SearchMode {
@@ -705,6 +726,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Success = false
 		m.ErrorMsg = fmt.Sprintf("Failed to create subtask: %s", msg.err.Error())
 		return m, tea.Quit
+
+	case issueUnassignedMsg:
+		snapshot, ok := m.removeIssueByID(msg.issueID)
+		if ok {
+			m.LastUnassigned = &snapshot
+			m.selectAfterIssueRemoval(snapshot)
+		}
+
+	case issueUnassignErrorMsg:
+		m.LinearError = msg.err.Error()
+
+	case issueReassignedMsg:
+		if m.LastUnassigned != nil && m.LastUnassigned.Issue.ID == msg.issueID {
+			restoredIssueID := m.LastUnassigned.Issue.ID
+			m.restoreIssue(*m.LastUnassigned)
+			m.LastUnassigned = nil
+			if restored := m.findIssueByID(restoredIssueID); restored != nil {
+				m.SelectedIssue = restored
+				m.InputMode = false
+				m.TextInput.Blur()
+				if !m.SearchMode {
+					m.TextInput.Placeholder = restored.GetBranchName()
+				}
+			}
+		}
+
+	case issueReassignErrorMsg:
+		m.LinearError = msg.err.Error()
 	}
 
 	// Update spinner if any loading state is active
@@ -880,6 +929,30 @@ func (m model) createSubtaskInline(parentID, title string) tea.Cmd {
 	}
 }
 
+func (m model) unassignIssue(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		if m.LinearClient == nil {
+			return issueUnassignErrorMsg{err: fmt.Errorf("linear client not configured")}
+		}
+		if err := m.LinearClient.UnassignIssue(issueID); err != nil {
+			return issueUnassignErrorMsg{err: err}
+		}
+		return issueUnassignedMsg{issueID: issueID}
+	}
+}
+
+func (m model) assignIssueToMe(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		if m.LinearClient == nil {
+			return issueReassignErrorMsg{err: fmt.Errorf("linear client not configured")}
+		}
+		if err := m.LinearClient.AssignIssueToMe(issueID); err != nil {
+			return issueReassignErrorMsg{err: err}
+		}
+		return issueReassignedMsg{issueID: issueID}
+	}
+}
+
 // filterIssuesBySearch filters issues using fuzzy search on identifier and title
 func (m *model) filterIssuesBySearch(query string) []linear.Issue {
 	if query == "" {
@@ -974,6 +1047,149 @@ func (m *model) addSubtaskToParent(parentID string, subtask linear.Issue) {
 	addToParent(&m.LinearIssues)
 }
 
+func (m *model) removeIssueByID(issueID string) (unassignedIssueSnapshot, bool) {
+	var zero unassignedIssueSnapshot
+
+	for i := range m.LinearIssues {
+		if m.LinearIssues[i].ID == issueID {
+			removed := m.LinearIssues[i]
+			m.LinearIssues = append(m.LinearIssues[:i], m.LinearIssues[i+1:]...)
+			m.normalizeIssueTree()
+			return unassignedIssueSnapshot{
+				Issue:    removed,
+				ParentID: "",
+				Index:    i,
+			}, true
+		}
+	}
+
+	var removeFromChildren func(parent *linear.Issue) (unassignedIssueSnapshot, bool)
+	removeFromChildren = func(parent *linear.Issue) (unassignedIssueSnapshot, bool) {
+		for i := range parent.Children {
+			if parent.Children[i].ID == issueID {
+				removed := parent.Children[i]
+				parent.Children = append(parent.Children[:i], parent.Children[i+1:]...)
+				parent.HasChildren = len(parent.Children) > 0
+				m.normalizeIssueTree()
+				return unassignedIssueSnapshot{
+					Issue:    removed,
+					ParentID: parent.ID,
+					Index:    i,
+				}, true
+			}
+
+			if snapshot, ok := removeFromChildren(&parent.Children[i]); ok {
+				return snapshot, true
+			}
+		}
+		return zero, false
+	}
+
+	for i := range m.LinearIssues {
+		if snapshot, ok := removeFromChildren(&m.LinearIssues[i]); ok {
+			return snapshot, true
+		}
+	}
+
+	return zero, false
+}
+
+func (m *model) restoreIssue(snapshot unassignedIssueSnapshot) {
+	if snapshot.ParentID == "" {
+		index := snapshot.Index
+		if index < 0 {
+			index = 0
+		}
+		if index > len(m.LinearIssues) {
+			index = len(m.LinearIssues)
+		}
+		m.LinearIssues = append(m.LinearIssues[:index], append([]linear.Issue{snapshot.Issue}, m.LinearIssues[index:]...)...)
+		m.normalizeIssueTree()
+		return
+	}
+
+	parent := m.findIssueByID(snapshot.ParentID)
+	if parent == nil {
+		m.LinearIssues = append(m.LinearIssues, snapshot.Issue)
+		m.normalizeIssueTree()
+		return
+	}
+
+	index := snapshot.Index
+	if index < 0 {
+		index = 0
+	}
+	if index > len(parent.Children) {
+		index = len(parent.Children)
+	}
+	parent.Children = append(parent.Children[:index], append([]linear.Issue{snapshot.Issue}, parent.Children[index:]...)...)
+	parent.HasChildren = true
+	parent.Expanded = true
+	m.normalizeIssueTree()
+}
+
+func (m *model) normalizeIssueTree() {
+	var normalize func(parent *linear.Issue, issues *[]linear.Issue, depth int)
+	normalize = func(parent *linear.Issue, issues *[]linear.Issue, depth int) {
+		for i := range *issues {
+			(*issues)[i].Depth = depth
+			(*issues)[i].Parent = parent
+			(*issues)[i].HasChildren = len((*issues)[i].Children) > 0
+			if len((*issues)[i].Children) > 0 {
+				normalize(&(*issues)[i], &(*issues)[i].Children, depth+1)
+			}
+		}
+	}
+
+	normalize(nil, &m.LinearIssues, 0)
+}
+
+func (m *model) selectAfterIssueRemoval(snapshot unassignedIssueSnapshot) {
+	if len(m.LinearIssues) == 0 {
+		m.SelectedIssue = nil
+		m.InputMode = true
+		m.TextInput.Focus()
+		m.TextInput.Placeholder = m.DefaultPlaceholder
+		return
+	}
+
+	if snapshot.ParentID == "" {
+		index := snapshot.Index
+		if index >= len(m.LinearIssues) {
+			index = len(m.LinearIssues) - 1
+		}
+		if index >= 0 {
+			m.SelectedIssue = &m.LinearIssues[index]
+		}
+	} else {
+		parent := m.findIssueByID(snapshot.ParentID)
+		if parent != nil && parent.Expanded && len(parent.Children) > 0 {
+			index := snapshot.Index
+			if index >= len(parent.Children) {
+				index = len(parent.Children) - 1
+			}
+			if index >= 0 {
+				m.SelectedIssue = &parent.Children[index]
+			}
+		} else if parent != nil {
+			m.SelectedIssue = parent
+		}
+	}
+
+	if m.SelectedIssue == nil {
+		m.InputMode = true
+		m.TextInput.Focus()
+		m.TextInput.Placeholder = m.DefaultPlaceholder
+		return
+	}
+
+	m.InputMode = false
+	m.TextInput.Blur()
+	if !m.SearchMode {
+		m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
+	}
+}
+
 type errMsg struct {
 	err error
 }
@@ -1010,6 +1226,22 @@ type subtaskCreatedMsg struct {
 }
 
 type subtaskErrorMsg struct {
+	err error
+}
+
+type issueUnassignedMsg struct {
+	issueID string
+}
+
+type issueUnassignErrorMsg struct {
+	err error
+}
+
+type issueReassignedMsg struct {
+	issueID string
+}
+
+type issueReassignErrorMsg struct {
 	err error
 }
 

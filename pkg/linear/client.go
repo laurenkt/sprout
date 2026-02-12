@@ -31,15 +31,15 @@ type Issue struct {
 	HasChildren bool      `json:"hasChildren"`
 	Expanded    bool      `json:"expanded"`
 	Depth       int       `json:"depth"`
-	
+
 	// UI state for inline subtask creation
-	IsAddSubtask        bool   `json:"-"`        // true if this is an "add subtask" placeholder
-	SubtaskParentID     string `json:"-"`        // ID of parent for new subtask
-	EditingTitle        bool   `json:"-"`        // true when editing this item's title
-	TitleInput          string `json:"-"`        // input buffer for title editing
-	TitleCursor         int    `json:"-"`        // cursor position in title input
-	ShowingSubtaskEntry bool   `json:"-"`        // true when showing inline subtask entry for this issue
-	SubtaskEntryText    string `json:"-"`        // text being entered for new subtask
+	IsAddSubtask        bool   `json:"-"` // true if this is an "add subtask" placeholder
+	SubtaskParentID     string `json:"-"` // ID of parent for new subtask
+	EditingTitle        bool   `json:"-"` // true when editing this item's title
+	TitleInput          string `json:"-"` // input buffer for title editing
+	TitleCursor         int    `json:"-"` // cursor position in title input
+	ShowingSubtaskEntry bool   `json:"-"` // true when showing inline subtask entry for this issue
+	SubtaskEntryText    string `json:"-"` // text being entered for new subtask
 }
 
 // State represents the state of an issue
@@ -63,6 +63,8 @@ type LinearClientInterface interface {
 	GetAssignedIssues() ([]Issue, error)
 	GetIssueChildren(issueID string) ([]Issue, error)
 	CreateSubtask(parentID, title string) (*Issue, error)
+	UnassignIssue(issueID string) error
+	AssignIssueToMe(issueID string) error
 	TestConnection() error
 }
 
@@ -249,32 +251,32 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 	// First pass: collect all issues and build a map by ID, preserving order
 	allIssues := make(map[string]Issue)
 	issueParents := make(map[string]string) // childID -> parentID
-	var issueOrder []string // preserve the order from API response
-	
+	var issueOrder []string                 // preserve the order from API response
+
 	for _, node := range result.Issues.Nodes {
 		issue := node.Issue
 		issue.HasChildren = len(node.Children.Nodes) > 0
 		issue.Depth = 0
 		issue.Expanded = false
 		issue.Parent = nil
-		
+
 		allIssues[issue.ID] = issue
 		issueOrder = append(issueOrder, issue.ID)
-		
+
 		// Track parent relationship if this issue has a parent
 		if node.Parent != nil {
 			issueParents[issue.ID] = node.Parent.ID
 		}
 	}
-	
+
 	// Second pass: filter out issues whose parents are also in the assigned list
 	// Process in order to maintain consistent results
 	var filteredIssues []Issue
-	
+
 	for _, issueID := range issueOrder {
 		issue := allIssues[issueID]
 		parentID, hasParent := issueParents[issueID]
-		
+
 		// If this issue has no parent, or its parent is not in our assigned issues,
 		// then include it as a top-level issue
 		if !hasParent || allIssues[parentID].ID == "" {
@@ -381,16 +383,16 @@ func (c *Client) CreateSubtask(parentID, title string) (*Issue, error) {
 			}
 		}
 	`
-	
+
 	parentVars := map[string]interface{}{
 		"issueId": parentID,
 	}
-	
+
 	parentResp, err := c.makeRequest(parentQuery, parentVars)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get parent issue: %w", err)
 	}
-	
+
 	var parentResult struct {
 		Issue struct {
 			ID   string `json:"id"`
@@ -402,7 +404,7 @@ func (c *Client) CreateSubtask(parentID, title string) (*Issue, error) {
 			ID string `json:"id"`
 		} `json:"viewer"`
 	}
-	
+
 	if err := json.Unmarshal(parentResp.Data, &parentResult); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal parent issue data: %w", err)
 	}
@@ -497,7 +499,7 @@ func (c *Client) CreateSubtask(parentID, title string) (*Issue, error) {
 	// Convert the response to our Issue struct
 	createdAt, _ := time.Parse(time.RFC3339, result.IssueCreate.Issue.CreatedAt)
 	updatedAt, _ := time.Parse(time.RFC3339, result.IssueCreate.Issue.UpdatedAt)
-	
+
 	issue := &Issue{
 		ID:          result.IssueCreate.Issue.ID,
 		Title:       result.IssueCreate.Issue.Title,
@@ -516,7 +518,7 @@ func (c *Client) CreateSubtask(parentID, title string) (*Issue, error) {
 		Expanded:    false,
 		Depth:       0, // Will be set by the UI
 	}
-	
+
 	// Convert assignee if present
 	if result.IssueCreate.Issue.Assignee != nil {
 		issue.Assignee = &User{
@@ -526,8 +528,99 @@ func (c *Client) CreateSubtask(parentID, title string) (*Issue, error) {
 			Email:       result.IssueCreate.Issue.Assignee.Email,
 		}
 	}
-	
+
 	return issue, nil
+}
+
+// UnassignIssue removes the assignee from an issue.
+func (c *Client) UnassignIssue(issueID string) error {
+	query := `
+		mutation($issueId: String!) {
+			issueUpdate(
+				id: $issueId
+				input: {
+					assigneeId: null
+				}
+			) {
+				success
+			}
+		}
+	`
+
+	variables := map[string]interface{}{
+		"issueId": issueID,
+	}
+
+	resp, err := c.makeRequest(query, variables)
+	if err != nil {
+		return err
+	}
+
+	var result struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return fmt.Errorf("failed to unmarshal issue unassign response: %w", err)
+	}
+
+	if !result.IssueUpdate.Success {
+		return fmt.Errorf("failed to unassign issue")
+	}
+
+	return nil
+}
+
+// AssignIssueToMe assigns the issue to the current user.
+func (c *Client) AssignIssueToMe(issueID string) error {
+	viewer, err := c.GetCurrentUser()
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
+	if viewer == nil || viewer.ID == "" {
+		return fmt.Errorf("failed to get current user id")
+	}
+
+	query := `
+		mutation($issueId: String!, $assigneeId: String!) {
+			issueUpdate(
+				id: $issueId
+				input: {
+					assigneeId: $assigneeId
+				}
+			) {
+				success
+			}
+		}
+	`
+
+	variables := map[string]interface{}{
+		"issueId":    issueID,
+		"assigneeId": viewer.ID,
+	}
+
+	resp, err := c.makeRequest(query, variables)
+	if err != nil {
+		return err
+	}
+
+	var result struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return fmt.Errorf("failed to unmarshal issue assign response: %w", err)
+	}
+
+	if !result.IssueUpdate.Success {
+		return fmt.Errorf("failed to assign issue")
+	}
+
+	return nil
 }
 
 // TestConnection tests the connection to Linear API and returns basic info
@@ -539,9 +632,9 @@ func (c *Client) TestConnection() error {
 // FakeLinearClient simulates Linear API behavior with in-memory data for testing
 type FakeLinearClient struct {
 	issues         map[string]Issue    // All issues by ID
-	topLevelIssues []string           // IDs of root issues (no parent)
+	topLevelIssues []string            // IDs of root issues (no parent)
 	childrenMap    map[string][]string // parentID -> childIDs
-	currentUser    *User              // Simulated current user
+	currentUser    *User               // Simulated current user
 }
 
 // NewFakeLinearClient creates a new fake Linear client for testing
@@ -561,16 +654,20 @@ func NewFakeLinearClient() *FakeLinearClient {
 
 // AddIssue adds an issue to the fake client's data store
 func (f *FakeLinearClient) AddIssue(issue Issue, parentID string) {
+	if issue.Assignee == nil {
+		issue.Assignee = f.currentUser
+	}
+
 	// Store the issue
 	f.issues[issue.ID] = issue
-	
+
 	if parentID == "" {
 		// Top-level issue
 		f.topLevelIssues = append(f.topLevelIssues, issue.ID)
 	} else {
 		// Child issue - add to parent's children map
 		f.childrenMap[parentID] = append(f.childrenMap[parentID], issue.ID)
-		
+
 		// Update parent to have children
 		if parent, exists := f.issues[parentID]; exists {
 			parent.HasChildren = true
@@ -590,33 +687,37 @@ func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
 	// Collect all issues that would be assigned to the user
 	allAssignedIssues := make(map[string]Issue)
 	issueParents := make(map[string]string) // childID -> parentID
-	
+
 	// Add all top-level issues (in order to maintain consistent ordering)
 	for _, issueID := range f.topLevelIssues {
 		if issue, exists := f.issues[issueID]; exists {
-			allAssignedIssues[issueID] = issue
+			if issue.Assignee != nil && issue.Assignee.ID == f.currentUser.ID {
+				allAssignedIssues[issueID] = issue
+			}
 		}
 	}
-	
+
 	// Add all child issues (simulating that they might also be assigned)
 	for parentID, childIDs := range f.childrenMap {
 		for _, childID := range childIDs {
 			if child, exists := f.issues[childID]; exists {
-				allAssignedIssues[childID] = child
-				issueParents[childID] = parentID
+				if child.Assignee != nil && child.Assignee.ID == f.currentUser.ID {
+					allAssignedIssues[childID] = child
+					issueParents[childID] = parentID
+				}
 			}
 		}
 	}
-	
+
 	// Now filter out issues whose parents are also in the assigned list
 	// Process top-level issues in order to maintain consistent ordering
 	var filteredIssues []Issue
-	
+
 	// First, add all top-level issues that don't have parents in the assigned list
 	for _, issueID := range f.topLevelIssues {
 		if issue, exists := allAssignedIssues[issueID]; exists {
 			parentID, hasParent := issueParents[issueID]
-			
+
 			// If this issue has no parent, or its parent is not in our assigned issues,
 			// then include it as a top-level issue
 			if !hasParent || allAssignedIssues[parentID].ID == "" {
@@ -630,7 +731,7 @@ func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
 			}
 		}
 	}
-	
+
 	// Then, check if any child issues should be promoted to top-level
 	// (when their parents are not assigned)
 	for parentID, childIDs := range f.childrenMap {
@@ -648,7 +749,7 @@ func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
 			}
 		}
 	}
-	
+
 	return filteredIssues, nil
 }
 
@@ -658,7 +759,7 @@ func (f *FakeLinearClient) GetIssueChildren(issueID string) ([]Issue, error) {
 	if !exists {
 		return []Issue{}, nil
 	}
-	
+
 	children := make([]Issue, 0, len(childIDs))
 	for _, childID := range childIDs {
 		if child, exists := f.issues[childID]; exists {
@@ -669,7 +770,7 @@ func (f *FakeLinearClient) GetIssueChildren(issueID string) ([]Issue, error) {
 			children = append(children, child)
 		}
 	}
-	
+
 	return children, nil
 }
 
@@ -677,13 +778,13 @@ func (f *FakeLinearClient) GetIssueChildren(issueID string) ([]Issue, error) {
 func (f *FakeLinearClient) CreateSubtask(parentID, title string) (*Issue, error) {
 	// Generate a fake ID for the new subtask
 	newID := fmt.Sprintf("fake-subtask-%d", len(f.issues))
-	
+
 	// Find parent to get identifier prefix
 	parent, exists := f.issues[parentID]
 	if !exists {
 		return nil, fmt.Errorf("parent issue not found: %s", parentID)
 	}
-	
+
 	// Generate identifier based on parent
 	var identifier string
 	if parent.Identifier != "" {
@@ -697,27 +798,50 @@ func (f *FakeLinearClient) CreateSubtask(parentID, title string) (*Issue, error)
 	} else {
 		identifier = fmt.Sprintf("SUB-%d", len(f.issues))
 	}
-	
+
 	// Create the new subtask
 	subtask := Issue{
 		ID:          newID,
 		Title:       title,
 		Identifier:  identifier,
+		Assignee:    f.currentUser,
 		HasChildren: false,
 		Expanded:    false,
 		Depth:       parent.Depth + 1,
 		Children:    []Issue{},
 	}
-	
+
 	// Add it to our data store
 	f.AddIssue(subtask, parentID)
-	
+
 	return &subtask, nil
 }
 
 // TestConnection simulates a connection test
 func (f *FakeLinearClient) TestConnection() error {
 	return nil // Always succeeds for fake client
+}
+
+// UnassignIssue removes the assignee from an issue in memory.
+func (f *FakeLinearClient) UnassignIssue(issueID string) error {
+	issue, exists := f.issues[issueID]
+	if !exists {
+		return fmt.Errorf("issue not found: %s", issueID)
+	}
+	issue.Assignee = nil
+	f.issues[issueID] = issue
+	return nil
+}
+
+// AssignIssueToMe assigns an issue to the fake current user.
+func (f *FakeLinearClient) AssignIssueToMe(issueID string) error {
+	issue, exists := f.issues[issueID]
+	if !exists {
+		return fmt.Errorf("issue not found: %s", issueID)
+	}
+	issue.Assignee = f.currentUser
+	f.issues[issueID] = issue
+	return nil
 }
 
 // NextVisible returns the next visible issue in the tree traversal order
@@ -741,17 +865,17 @@ func (i *Issue) NextVisible(roots []Issue) *Issue {
 		}
 		return nil
 	}
-	
+
 	// If this issue is expanded and has children, go to first child
 	if i.Expanded && len(i.Children) > 0 {
 		return &i.Children[0]
 	}
-	
+
 	// Try to find next sibling
 	if nextSib := i.NextSibling(roots); nextSib != nil {
 		return nextSib
 	}
-	
+
 	// Go up to parent and try its next sibling
 	current := i.Parent
 	for current != nil {
@@ -760,11 +884,11 @@ func (i *Issue) NextVisible(roots []Issue) *Issue {
 		}
 		current = current.Parent
 	}
-	
+
 	return nil // End of tree
 }
 
-// PrevVisible returns the previous visible issue in the tree traversal order  
+// PrevVisible returns the previous visible issue in the tree traversal order
 func (i *Issue) PrevVisible(roots []Issue) *Issue {
 	// For "Add subtask" placeholders, go to the last child of parent if any, otherwise parent
 	if i.IsAddSubtask {
@@ -778,13 +902,13 @@ func (i *Issue) PrevVisible(roots []Issue) *Issue {
 		}
 		return nil
 	}
-	
+
 	// Try to find previous sibling
 	if prevSib := i.prevSibling(roots); prevSib != nil {
 		// Go to the last visible item under the previous sibling
 		return prevSib.LastVisible()
 	}
-	
+
 	// Go to parent
 	return i.Parent
 }
@@ -794,7 +918,7 @@ func (i *Issue) findParent(roots []Issue) *Issue {
 	if i.SubtaskParentID == "" {
 		return nil
 	}
-	
+
 	var find func(issues []Issue) *Issue
 	find = func(issues []Issue) *Issue {
 		for j := range issues {
@@ -807,7 +931,7 @@ func (i *Issue) findParent(roots []Issue) *Issue {
 		}
 		return nil
 	}
-	
+
 	return find(roots)
 }
 
@@ -857,7 +981,7 @@ func (i *Issue) LastVisible() *Issue {
 	if i.Expanded && len(i.Children) > 0 {
 		return i.Children[len(i.Children)-1].LastVisible()
 	}
-	
+
 	// If not expanded or no children, this issue is the last visible
 	return i
 }
@@ -868,12 +992,12 @@ func (i *Issue) GetBranchName() string {
 	if i.Identifier == "" || i.IsAddSubtask {
 		return "invalid-issue"
 	}
-	
+
 	// Convert title to kebab-case, limit to reasonable length
 	title := strings.ToLower(i.Title)
 	title = strings.ReplaceAll(title, " ", "-")
 	title = strings.ReplaceAll(title, "_", "-")
-	
+
 	// Remove special characters except hyphens
 	var cleaned strings.Builder
 	for _, r := range title {
@@ -882,20 +1006,20 @@ func (i *Issue) GetBranchName() string {
 		}
 	}
 	title = cleaned.String()
-	
+
 	// Remove consecutive hyphens
 	for strings.Contains(title, "--") {
 		title = strings.ReplaceAll(title, "--", "-")
 	}
-	
+
 	// Trim hyphens from start/end
 	title = strings.Trim(title, "-")
-	
+
 	// Limit length (keeping identifier + reasonable title length)
 	if len(title) > 50 {
 		title = title[:50]
 		title = strings.Trim(title, "-")
 	}
-	
+
 	return fmt.Sprintf("%s-%s", strings.ToLower(i.Identifier), title)
 }

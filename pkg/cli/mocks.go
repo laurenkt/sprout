@@ -70,6 +70,14 @@ func (m *MockLinearClient) CreateSubtask(parentID, title string) (*linear.Issue,
 	return &linear.Issue{}, nil
 }
 
+func (m *MockLinearClient) UnassignIssue(issueID string) error {
+	return nil
+}
+
+func (m *MockLinearClient) AssignIssueToMe(issueID string) error {
+	return nil
+}
+
 func (m *MockLinearClient) TestConnection() error {
 	return m.ConnectionError
 }

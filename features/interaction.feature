@@ -89,3 +89,33 @@ Feature: Sprout TUI Interaction
       | command                                                                                                       |
       | git worktree add /mock/worktrees/spr-123-add-user-authentication -b spr-123-add-user-authentication main |
       | cd /mock/worktrees/spr-123-add-user-authentication && code .                                           |
+
+  Scenario: Unassign selected ticket and remove it from the list
+    Given I start the Sprout TUI
+    And I press "down"
+    When I press "u"
+    Then the UI should display:
+      """
+      🌱 sprout
+
+      > sprout/spr-124-implement-dashboard-with-analytics-and-reporting
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      └──SPR-127  Done         Fix critical bug in payment processing
+      [worktree <tab>]
+      """
+
+  Scenario: Undo unassign restores the ticket to the list
+    Given I start the Sprout TUI
+    And I press "down"
+    And I press "u"
+    When I press "z"
+    Then the UI should display:
+      """
+      🌱 sprout
+
+      > sprout/spr-123-add-user-authentication
+      ├──SPR-123  Todo         Add user authentication
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      └──SPR-127  Done         Fix critical bug in payment processing
+      [worktree <tab>]
+      """
