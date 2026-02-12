@@ -610,6 +610,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.SelectedIssue != nil && m.LinearClient != nil {
 						return m, m.unassignIssue(m.SelectedIssue.ID)
 					}
+				case 'd', 'D':
+					if m.SelectedIssue != nil && m.LinearClient != nil {
+						return m, m.markIssueDone(m.SelectedIssue.ID)
+					}
 				case 'z', 'Z':
 					if m.LastUnassigned != nil && m.LinearClient != nil {
 						return m, m.assignIssueToMe(m.LastUnassigned.Issue.ID)
@@ -753,6 +757,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case issueReassignErrorMsg:
+		m.LinearError = msg.err.Error()
+
+	case issueDoneMsg:
+		snapshot, ok := m.removeIssueByID(msg.issueID)
+		if ok {
+			m.selectAfterIssueRemoval(snapshot)
+		}
+
+	case issueDoneErrorMsg:
 		m.LinearError = msg.err.Error()
 	}
 
@@ -950,6 +963,18 @@ func (m model) assignIssueToMe(issueID string) tea.Cmd {
 			return issueReassignErrorMsg{err: err}
 		}
 		return issueReassignedMsg{issueID: issueID}
+	}
+}
+
+func (m model) markIssueDone(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		if m.LinearClient == nil {
+			return issueDoneErrorMsg{err: fmt.Errorf("linear client not configured")}
+		}
+		if err := m.LinearClient.MarkIssueDone(issueID); err != nil {
+			return issueDoneErrorMsg{err: err}
+		}
+		return issueDoneMsg{issueID: issueID}
 	}
 }
 
@@ -1245,6 +1270,14 @@ type issueReassignErrorMsg struct {
 	err error
 }
 
+type issueDoneMsg struct {
+	issueID string
+}
+
+type issueDoneErrorMsg struct {
+	err error
+}
+
 func (m model) View() string {
 	if m.Done {
 		if m.Success {
@@ -1328,7 +1361,8 @@ func (m model) View() string {
 	if m.CreationMode == creationModeBranchOnly {
 		modeLabel = "[branch <tab>]"
 	}
-	s.WriteString(helpStyle.Render(modeLabel))
+	hotkeys := modeLabel + " [u unassign] [d done] [z undo]"
+	s.WriteString(helpStyle.Render(hotkeys))
 
 	return s.String()
 }

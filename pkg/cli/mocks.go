@@ -78,6 +78,10 @@ func (m *MockLinearClient) AssignIssueToMe(issueID string) error {
 	return nil
 }
 
+func (m *MockLinearClient) MarkIssueDone(issueID string) error {
+	return nil
+}
+
 func (m *MockLinearClient) TestConnection() error {
 	return m.ConnectionError
 }

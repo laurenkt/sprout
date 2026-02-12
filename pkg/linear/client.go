@@ -65,6 +65,7 @@ type LinearClientInterface interface {
 	CreateSubtask(parentID, title string) (*Issue, error)
 	UnassignIssue(issueID string) error
 	AssignIssueToMe(issueID string) error
+	MarkIssueDone(issueID string) error
 	TestConnection() error
 }
 
@@ -623,6 +624,100 @@ func (c *Client) AssignIssueToMe(issueID string) error {
 	return nil
 }
 
+// MarkIssueDone moves an issue to a completed state.
+func (c *Client) MarkIssueDone(issueID string) error {
+	stateID, err := c.getCompletedStateID(issueID)
+	if err != nil {
+		return err
+	}
+
+	query := `
+		mutation($issueId: String!, $stateId: String!) {
+			issueUpdate(
+				id: $issueId
+				input: {
+					stateId: $stateId
+				}
+			) {
+				success
+			}
+		}
+	`
+
+	variables := map[string]interface{}{
+		"issueId": issueID,
+		"stateId": stateID,
+	}
+
+	resp, err := c.makeRequest(query, variables)
+	if err != nil {
+		return err
+	}
+
+	var result struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+		} `json:"issueUpdate"`
+	}
+
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return fmt.Errorf("failed to unmarshal issue done response: %w", err)
+	}
+
+	if !result.IssueUpdate.Success {
+		return fmt.Errorf("failed to mark issue as done")
+	}
+
+	return nil
+}
+
+func (c *Client) getCompletedStateID(issueID string) (string, error) {
+	query := `
+		query($issueId: String!) {
+			issue(id: $issueId) {
+				team {
+					states(filter: { type: { eq: "completed" } }) {
+						nodes {
+							id
+						}
+					}
+				}
+			}
+		}
+	`
+
+	variables := map[string]interface{}{
+		"issueId": issueID,
+	}
+
+	resp, err := c.makeRequest(query, variables)
+	if err != nil {
+		return "", err
+	}
+
+	var result struct {
+		Issue *struct {
+			Team *struct {
+				States struct {
+					Nodes []struct {
+						ID string `json:"id"`
+					} `json:"nodes"`
+				} `json:"states"`
+			} `json:"team"`
+		} `json:"issue"`
+	}
+
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return "", fmt.Errorf("failed to unmarshal completed state lookup response: %w", err)
+	}
+
+	if result.Issue == nil || result.Issue.Team == nil || len(result.Issue.Team.States.Nodes) == 0 {
+		return "", fmt.Errorf("no completed state found for issue")
+	}
+
+	return result.Issue.Team.States.Nodes[0].ID, nil
+}
+
 // TestConnection tests the connection to Linear API and returns basic info
 func (c *Client) TestConnection() error {
 	_, err := c.GetCurrentUser()
@@ -840,6 +935,21 @@ func (f *FakeLinearClient) AssignIssueToMe(issueID string) error {
 		return fmt.Errorf("issue not found: %s", issueID)
 	}
 	issue.Assignee = f.currentUser
+	f.issues[issueID] = issue
+	return nil
+}
+
+// MarkIssueDone updates an issue state to done in memory.
+func (f *FakeLinearClient) MarkIssueDone(issueID string) error {
+	issue, exists := f.issues[issueID]
+	if !exists {
+		return fmt.Errorf("issue not found: %s", issueID)
+	}
+	issue.State = State{
+		ID:   issue.State.ID,
+		Name: "Done",
+		Type: "completed",
+	}
 	f.issues[issueID] = issue
 	return nil
 }
