@@ -23,7 +23,7 @@ Feature: Sprout TUI Interaction
       ├──SPR-123  Todo         Add user authentication
       ├──SPR-124  In Progress  Implement dashboard with analytics and re...
       └──SPR-127  Done         Fix critical bug in payment processing
-      [worktree <tab>]
+      [worktree <tab>] [u unassign] [d done] [z undo]
       """
     When I press "up"
     Then the UI should display:
@@ -34,7 +34,7 @@ Feature: Sprout TUI Interaction
       ├──SPR-123  Todo         Add user authentication
       ├──SPR-124  In Progress  Implement dashboard with analytics and re...
       └──SPR-127  Done         Fix critical bug in payment processing
-      [branch <tab>]
+      [branch <tab>] [u unassign] [d done] [z undo]
       """
 
   Scenario: Toggle between worktree and branch mode
@@ -48,7 +48,7 @@ Feature: Sprout TUI Interaction
       ├──SPR-123  Todo         Add user authentication
       ├──SPR-124  In Progress  Implement dashboard with analytics and re...
       └──SPR-127  Done         Fix critical bug in payment processing
-      [branch <tab>]
+      [branch <tab>] [u unassign] [d done] [z undo]
       """
 
   Scenario: Create a branch after toggling mode
@@ -101,7 +101,21 @@ Feature: Sprout TUI Interaction
       > sprout/spr-124-implement-dashboard-with-analytics-and-reporting
       ├──SPR-124  In Progress  Implement dashboard with analytics and re...
       └──SPR-127  Done         Fix critical bug in payment processing
-      [worktree <tab>]
+      [worktree <tab>] [u unassign] [d done] [z undo]
+      """
+
+  Scenario: Mark selected ticket as done and remove it from the list
+    Given I start the Sprout TUI
+    And I press "down"
+    When I press "d"
+    Then the UI should display:
+      """
+      🌱 sprout
+
+      > sprout/spr-124-implement-dashboard-with-analytics-and-reporting
+      ├──SPR-124  In Progress  Implement dashboard with analytics and re...
+      └──SPR-127  Done         Fix critical bug in payment processing
+      [worktree <tab>] [u unassign] [d done] [z undo]
       """
 
   Scenario: Undo unassign restores the ticket to the list
@@ -117,5 +131,5 @@ Feature: Sprout TUI Interaction
       ├──SPR-123  Todo         Add user authentication
       ├──SPR-124  In Progress  Implement dashboard with analytics and re...
       └──SPR-127  Done         Fix critical bug in payment processing
-      [worktree <tab>]
+      [worktree <tab>] [u unassign] [d done] [z undo]
       """

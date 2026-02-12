@@ -276,6 +276,8 @@ func (tc *TUITestContext) iPress(key string) error {
 		keyMsg = tea.KeyMsg{Type: tea.KeyBackspace}
 	case "u":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}}
+	case "d":
+		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
 	case "z":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}
 	default:
