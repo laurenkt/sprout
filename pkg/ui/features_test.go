@@ -3,14 +3,17 @@ package ui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
+	"sprout/pkg/config"
 	"sprout/pkg/git"
 	"sprout/pkg/linear"
 )
@@ -24,6 +27,7 @@ type TUITestContext struct {
 	defaultWorktreeCmd  string
 	postCreateRuns      []string
 	postCreateRan       bool
+	pendingMsgs         chan tea.Msg
 	t                   *testing.T
 	terminalWidth       int
 	terminalHeight      int
@@ -37,6 +41,7 @@ func NewTUITestContext(t *testing.T) *TUITestContext {
 		defaultWorktreeCmd:  "",
 		postCreateRuns:      nil,
 		postCreateRan:       false,
+		pendingMsgs:         make(chan tea.Msg, 64),
 		t:                   t,
 		terminalWidth:       80, // Default width
 		terminalHeight:      24, // Default height
@@ -48,6 +53,8 @@ type testWorktreeManager struct {
 	lastCreatedWorktree string
 	lastCreatedBranch   string
 	gitCommands         []string
+	delayCreate         bool
+	createUnblock       chan struct{}
 }
 
 func (m *testWorktreeManager) CreateWorktree(branchName string) (string, error) {
@@ -56,6 +63,14 @@ func (m *testWorktreeManager) CreateWorktree(branchName string) (string, error) 
 	}
 	m.lastCreatedWorktree = branchName
 	m.gitCommands = append(m.gitCommands, fmt.Sprintf("git worktree add /mock/worktrees/%s -b %s main", branchName, branchName))
+	if m.delayCreate {
+		if m.createUnblock == nil {
+			m.createUnblock = make(chan struct{})
+		}
+		<-m.createUnblock
+		m.delayCreate = false
+		m.createUnblock = nil
+	}
 	return "/mock/worktrees/" + branchName, nil
 }
 
@@ -78,6 +93,17 @@ func (m *testWorktreeManager) PruneWorktree(branchName string) error {
 
 func (m *testWorktreeManager) PruneAllMerged() error {
 	return nil
+}
+
+func (m *testWorktreeManager) delayWorktreeCreation() {
+	m.delayCreate = true
+	m.createUnblock = make(chan struct{})
+}
+
+func (m *testWorktreeManager) completeDelayedWorktreeCreation() {
+	if m.delayCreate && m.createUnblock != nil {
+		close(m.createUnblock)
+	}
 }
 
 // CursorPosition represents the position of the cursor in the terminal
@@ -210,7 +236,9 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 
 	// Create test model with fake client and worktree manager stub
 	var err error
-	tc.model, err = NewTUIWithDependencies(tc.fakeWorktreeManager, tc.fakeClient)
+	tc.model, err = NewTUIWithDependenciesAndConfig(tc.fakeWorktreeManager, tc.fakeClient, &config.Config{
+		DefaultCommand: tc.defaultWorktreeCmd,
+	})
 	if err != nil {
 		return err
 	}
@@ -289,6 +317,7 @@ func (tc *TUITestContext) iPress(key string) error {
 	tc.model = updatedModel.(model)
 
 	tc.processCmd(cmd)
+	tc.drainWithTimeout(10 * time.Millisecond)
 
 	return nil
 }
@@ -303,6 +332,7 @@ func (tc *TUITestContext) iType(text string) error {
 		tc.model = updatedModel.(model)
 
 		tc.processCmd(cmd)
+		tc.drainWithTimeout(10 * time.Millisecond)
 	}
 
 	return nil
@@ -313,7 +343,52 @@ func (tc *TUITestContext) processCmd(cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
-	tc.processMsg(cmd())
+
+	go func() {
+		tc.pendingMsgs <- cmd()
+	}()
+
+	tc.drainReadyMessages()
+}
+
+func (tc *TUITestContext) drainReadyMessages() {
+	for {
+		select {
+		case msg := <-tc.pendingMsgs:
+			tc.processMsg(msg)
+		default:
+			return
+		}
+	}
+}
+
+func (tc *TUITestContext) drainWithTimeout(timeout time.Duration) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case msg := <-tc.pendingMsgs:
+			tc.processMsg(msg)
+			if !timer.Stop() {
+				<-timer.C
+			}
+			timer.Reset(timeout)
+		case <-timer.C:
+			return
+		}
+	}
+}
+
+func (tc *TUITestContext) waitForOneAsyncMessage(timeout time.Duration) error {
+	select {
+	case msg := <-tc.pendingMsgs:
+		tc.processMsg(msg)
+		tc.drainReadyMessages()
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("timed out waiting for async command completion")
+	}
 }
 
 // processMsg updates the model with a message and processes any follow-up commands
@@ -348,14 +423,33 @@ func (tc *TUITestContext) maybeRunPostCreateCommand() {
 		return
 	}
 
-	tc.postCreateRuns = append(tc.postCreateRuns, fmt.Sprintf("cd %s && %s", tc.model.WorktreePath, tc.defaultWorktreeCmd))
+	cfg := &config.Config{DefaultCommand: tc.defaultWorktreeCmd}
+	resolved := config.ResolveDefaultCommand(cfg.GetDefaultCommand(), tc.model.CapturedPrompt)
+	if len(resolved) == 0 {
+		return
+	}
+
+	tc.postCreateRuns = append(tc.postCreateRuns, fmt.Sprintf("cd %s && %s", tc.model.WorktreePath, formatCommandArgs(resolved)))
 	tc.postCreateRan = true
+}
+
+func formatCommandArgs(args []string) string {
+	parts := make([]string, len(args))
+	for i, arg := range args {
+		if arg == "" || strings.ContainsAny(arg, " \t\n\"'") {
+			parts[i] = strconv.Quote(arg)
+		} else {
+			parts[i] = arg
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
 	if tc.testModel == nil {
 		return fmt.Errorf("test model not initialized")
 	}
+	tc.drainWithTimeout(20 * time.Millisecond)
 
 	// Extract cursor position from expected output if present
 	expectedContent, expectedCursorPos, err := extractCursorPosition(expected.Content)
@@ -467,6 +561,20 @@ func (tc *TUITestContext) theUIShouldDisplay(expected *godog.DocString) error {
 	return nil
 }
 
+func (tc *TUITestContext) theUIShouldContain(text string) error {
+	if tc.testModel == nil {
+		return fmt.Errorf("test model not initialized")
+	}
+
+	tc.drainWithTimeout(20 * time.Millisecond)
+	actual := StripANSI(tc.model.View())
+	if !strings.Contains(actual, text) {
+		return fmt.Errorf("expected UI to contain %q\nActual UI:\n%s", text, actual)
+	}
+
+	return nil
+}
+
 // trimEmptyLines removes empty lines from the beginning and end of a slice
 func trimEmptyLines(lines []string) []string {
 	// Find first non-empty line
@@ -497,6 +605,7 @@ func (tc *TUITestContext) theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidt
 	if tc.testModel == nil {
 		return fmt.Errorf("test model not initialized")
 	}
+	tc.drainWithTimeout(20 * time.Millisecond)
 
 	// Get current view
 	actual := tc.model.View()
@@ -548,6 +657,7 @@ func (tc *TUITestContext) theFollowingCommandsShouldBeRun(commandsTable *godog.T
 	if tc.fakeWorktreeManager == nil {
 		return fmt.Errorf("worktree manager not initialized")
 	}
+	tc.drainWithTimeout(20 * time.Millisecond)
 
 	expected, err := tc.parseExpectedCommands(commandsTable)
 	if err != nil {
@@ -573,6 +683,16 @@ func (tc *TUITestContext) theDefaultWorktreeCommandIs(command string) error {
 	return nil
 }
 
+func (tc *TUITestContext) worktreeCreationIsDelayed() error {
+	tc.fakeWorktreeManager.delayWorktreeCreation()
+	return nil
+}
+
+func (tc *TUITestContext) worktreeCreationCompletes() error {
+	tc.fakeWorktreeManager.completeDelayedWorktreeCreation()
+	return tc.waitForOneAsyncMessage(2 * time.Second)
+}
+
 // InitializeScenario initializes godog with our step definitions
 func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	tc := NewTUITestContext(t)
@@ -584,6 +704,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 		tc.defaultWorktreeCmd = ""
 		tc.postCreateRuns = nil
 		tc.postCreateRan = false
+		tc.pendingMsgs = make(chan tea.Msg, 64)
 		tc.t = t              // Ensure t is set for each scenario
 		tc.terminalWidth = 80 // Reset to default
 		tc.terminalHeight = 24
@@ -597,8 +718,11 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Step(`^I press "([^"]*)"$`, tc.iPress)
 	ctx.Step(`^I type "([^"]*)"$`, tc.iType)
 	ctx.Step(`^the UI should display:$`, tc.theUIShouldDisplay)
+	ctx.Step(`^the UI should contain "([^"]*)"$`, tc.theUIShouldContain)
 	ctx.Step(`^the following commands should be run:$`, tc.theFollowingCommandsShouldBeRun)
 	ctx.Step(`^the default worktree command is "([^"]*)"$`, tc.theDefaultWorktreeCommandIs)
+	ctx.Step(`^worktree creation is delayed$`, tc.worktreeCreationIsDelayed)
+	ctx.Step(`^worktree creation completes$`, tc.worktreeCreationCompletes)
 	ctx.Step(`^the UI should display titles truncated to fit the available width$`, tc.theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidth)
 }
 
