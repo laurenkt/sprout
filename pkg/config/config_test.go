@@ -77,6 +77,98 @@ func TestGetDefaultCommand(t *testing.T) {
 	}
 }
 
+func TestNeedsPromptCapture(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected bool
+	}{
+		{
+			name:     "no args",
+			args:     nil,
+			expected: false,
+		},
+		{
+			name:     "no prompt placeholder",
+			args:     []string{"code", "."},
+			expected: false,
+		},
+		{
+			name:     "placeholder in separate arg",
+			args:     []string{"codex", "$PROMPT"},
+			expected: true,
+		},
+		{
+			name:     "placeholder embedded in arg",
+			args:     []string{"tool", "--message=prefix:$PROMPT:suffix"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NeedsPromptCapture(tt.args)
+			if result != tt.expected {
+				t.Fatalf("NeedsPromptCapture(%v) = %v, want %v", tt.args, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestResolveDefaultCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		prompt   string
+		expected []string
+	}{
+		{
+			name:     "empty args",
+			args:     nil,
+			prompt:   "ignored",
+			expected: nil,
+		},
+		{
+			name:     "no placeholder",
+			args:     []string{"code", "."},
+			prompt:   "prompt",
+			expected: []string{"code", "."},
+		},
+		{
+			name:     "single placeholder",
+			args:     []string{"codex", "$PROMPT"},
+			prompt:   "build API tests",
+			expected: []string{"codex", "build API tests"},
+		},
+		{
+			name:     "empty prompt",
+			args:     []string{"codex", "$PROMPT"},
+			prompt:   "",
+			expected: []string{"codex", ""},
+		},
+		{
+			name:     "repeated placeholder",
+			args:     []string{"tool", "--a=$PROMPT", "--b=$PROMPT"},
+			prompt:   "hello",
+			expected: []string{"tool", "--a=hello", "--b=hello"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ResolveDefaultCommand(tt.args, tt.prompt)
+			if len(result) != len(tt.expected) {
+				t.Fatalf("ResolveDefaultCommand() returned %d args, expected %d", len(result), len(tt.expected))
+			}
+			for i := range result {
+				if result[i] != tt.expected[i] {
+					t.Fatalf("ResolveDefaultCommand() arg[%d] = %q, want %q", i, result[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
 func TestGetWorktreeBasePath(t *testing.T) {
 	repoRoot := "/Users/test/sprout"
 	repoName := "sprout"

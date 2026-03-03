@@ -52,6 +52,12 @@ type model struct {
 	CreationMode       creationMode   // user-selected creation mode
 	ActiveCreationMode creationMode   // creation mode currently executing
 	LastUnassigned     *unassignedIssueSnapshot
+	DefaultCommandArgs []string
+	NeedsPromptCapture bool
+	PromptCaptureMode  bool
+	PromptSubmitted    bool
+	CreationFinished   bool
+	CapturedPrompt     string
 }
 
 type unassignedIssueSnapshot struct {
@@ -170,10 +176,20 @@ func NewTUIWithManager(wm git.WorktreeManagerInterface) (model, error) {
 		linearClient = linear.NewClient(cfg.LinearAPIKey)
 	}
 
-	return NewTUIWithDependencies(wm, linearClient)
+	return NewTUIWithDependenciesAndConfig(wm, linearClient, cfg)
 }
 
 func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear.LinearClientInterface) (model, error) {
+	return NewTUIWithDependenciesAndConfig(wm, linearClient, config.DefaultConfig())
+}
+
+func NewTUIWithDependenciesAndConfig(wm git.WorktreeManagerInterface, linearClient linear.LinearClientInterface, cfg *config.Config) (model, error) {
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+
+	defaultCommandArgs := cfg.GetDefaultCommand()
+
 	// Get repository name for the prompt
 	repoName, err := git.GetRepositoryName()
 	if err != nil {
@@ -254,6 +270,12 @@ func NewTUIWithDependencies(wm git.WorktreeManagerInterface, linearClient linear
 		CreationMode:       creationModeWorktree,
 		ActiveCreationMode: creationModeWorktree,
 		LastUnassigned:     nil,
+		DefaultCommandArgs: defaultCommandArgs,
+		NeedsPromptCapture: config.NeedsPromptCapture(defaultCommandArgs),
+		PromptCaptureMode:  false,
+		PromptSubmitted:    false,
+		CreationFinished:   false,
+		CapturedPrompt:     "",
 	}, nil
 }
 
@@ -331,6 +353,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case tea.KeyEnter:
+			if m.PromptCaptureMode && m.ActiveCreationMode == creationModeWorktree {
+				if m.PromptSubmitted {
+					return m, nil
+				}
+
+				m.CapturedPrompt = m.TextInput.Value()
+				m.PromptSubmitted = true
+
+				if m.CreationFinished {
+					m.PromptCaptureMode = false
+					m.Done = true
+					m.Success = true
+					m.Result = fmt.Sprintf("Worktree created at: %s", m.WorktreePath)
+					return m, tea.Quit
+				}
+
+				return m, nil
+			}
+
 			if !m.Submitted {
 				// Check if we're in subtask input mode
 				if m.SubtaskInputMode {
@@ -365,7 +406,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Submitted = true
 				m.Creating = true
 				m.ActiveCreationMode = m.CreationMode
-				m.TextInput.SetValue(branchName) // Set the input to the selected branch name
+				m.CreationFinished = false
+				m.PromptSubmitted = false
+				m.CapturedPrompt = ""
+
+				if m.CreationMode == creationModeWorktree && m.NeedsPromptCapture {
+					m.PromptCaptureMode = true
+					m.SearchMode = false
+					m.SearchQuery = ""
+					m.FilteredIssues = nil
+					m.SelectedIssue = nil
+					m.AddSubtaskSelected = ""
+					m.InputMode = true
+					m.TextInput.Focus()
+					m.TextInput.Prompt = "prompt> "
+					m.TextInput.Placeholder = "enter prompt for command and press Enter"
+					m.TextInput.SetValue("")
+				} else {
+					m.PromptCaptureMode = false
+					m.TextInput.SetValue(branchName) // Set the input to the selected branch name
+				}
 
 				var creationCmd tea.Cmd
 				if m.CreationMode == creationModeBranchOnly {
@@ -658,11 +718,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case worktreeCreatedMsg:
 		m.Creating = false
+		m.WorktreePath = msg.path
+		m.CreationFinished = true
+
+		if m.PromptCaptureMode {
+			if m.PromptSubmitted {
+				m.PromptCaptureMode = false
+				m.Done = true
+				m.Success = true
+				m.Result = fmt.Sprintf("Worktree created at: %s", msg.path)
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
 		m.Done = true
 		m.Success = true
 		m.Result = fmt.Sprintf("Worktree created at: %s", msg.path)
-		// Store the path for later execution and quit the TUI
-		m.WorktreePath = msg.path
 		return m, tea.Quit
 
 	case branchCreatedMsg:
@@ -1287,6 +1359,10 @@ func (m model) View() string {
 		}
 	}
 
+	if m.PromptCaptureMode {
+		return m.renderPromptCaptureView()
+	}
+
 	if m.Creating {
 		if m.ActiveCreationMode == creationModeBranchOnly {
 			return fmt.Sprintf("%s Creating branch...", m.Spinner.View())
@@ -1364,6 +1440,29 @@ func (m model) View() string {
 	hotkeys := modeLabel + " [u unassign] [d done] [z undo]"
 	s.WriteString(helpStyle.Render(hotkeys))
 
+	return s.String()
+}
+
+func (m model) renderPromptCaptureView() string {
+	status := "Creating worktree..."
+	if m.PromptSubmitted && !m.CreationFinished {
+		status = "Prompt queued, waiting for git..."
+	} else if !m.PromptSubmitted && m.CreationFinished {
+		status = "Worktree ready, press Enter to launch"
+	}
+
+	s := strings.Builder{}
+	s.WriteString(headerStyle.Render("🌱 sprout"))
+	s.WriteString("\n\n")
+	if m.Creating {
+		s.WriteString(fmt.Sprintf("%s %s", m.Spinner.View(), status))
+	} else {
+		s.WriteString(loadingStyle.Render(status))
+	}
+	s.WriteString("\n")
+
+	m.TextInput.PromptStyle = selectedStyle
+	s.WriteString(m.TextInput.View())
 	return s.String()
 }
 
@@ -1545,15 +1644,10 @@ func RunInteractive() error {
 
 	// After TUI exits, check if we need to execute a default command
 	if resultModel, ok := finalModel.(model); ok && resultModel.Success && resultModel.WorktreePath != "" {
-		cfg, err := config.Load()
-		if err != nil {
-			cfg = config.DefaultConfig()
-		}
-
-		defaultCmd := cfg.GetDefaultCommand()
-		if len(defaultCmd) > 0 {
+		resolvedCmd := config.ResolveDefaultCommand(resultModel.DefaultCommandArgs, resultModel.CapturedPrompt)
+		if len(resolvedCmd) > 0 {
 			// Execute the default command in the worktree directory
-			cmd := exec.Command(defaultCmd[0], defaultCmd[1:]...)
+			cmd := exec.Command(resolvedCmd[0], resolvedCmd[1:]...)
 			cmd.Dir = resultModel.WorktreePath
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout

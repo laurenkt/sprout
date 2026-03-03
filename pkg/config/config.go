@@ -11,6 +11,8 @@ import (
 	"github.com/yosuke-furukawa/json5/encoding/json5"
 )
 
+const PromptPlaceholder = "$PROMPT"
+
 type Config struct {
 	DefaultCommand    string              `json:"defaultCommand,omitempty"`
 	LinearAPIKey      string              `json:"linearApiKey,omitempty"`
@@ -148,6 +150,30 @@ func (c *Config) GetDefaultCommand() []string {
 	}
 
 	return parts
+}
+
+// NeedsPromptCapture returns true if any command argument contains the prompt placeholder.
+func NeedsPromptCapture(defaultCmdArgs []string) bool {
+	for _, arg := range defaultCmdArgs {
+		if strings.Contains(arg, PromptPlaceholder) {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveDefaultCommand substitutes all prompt placeholders in command args.
+func ResolveDefaultCommand(defaultCmdArgs []string, prompt string) []string {
+	if len(defaultCmdArgs) == 0 {
+		return nil
+	}
+
+	resolved := make([]string, len(defaultCmdArgs))
+	for i, arg := range defaultCmdArgs {
+		resolved[i] = strings.ReplaceAll(arg, PromptPlaceholder, prompt)
+	}
+
+	return resolved
 }
 
 // parseCommandLine parses a command line string respecting quotes
