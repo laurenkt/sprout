@@ -429,9 +429,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				var creationCmd tea.Cmd
 				if m.CreationMode == creationModeBranchOnly {
-					creationCmd = m.createBranch()
+					creationCmd = m.createBranch(branchName)
 				} else {
-					creationCmd = m.createWorktree()
+					creationCmd = m.createWorktree(branchName)
 				}
 
 				return m, tea.Batch(creationCmd, m.Spinner.Tick)
@@ -915,13 +915,17 @@ func (m *model) setSubtaskEntryMode(issueID string, enabled bool) {
 	update(&m.LinearIssues)
 }
 
-func (m model) createWorktree() tea.Cmd {
+func (m model) createWorktree(branchName string) tea.Cmd {
 	return func() tea.Msg {
 		if m.WorktreeManager == nil {
 			return errMsg{fmt.Errorf("worktree manager not configured")}
 		}
 
-		branchName := strings.TrimSpace(m.TextInput.Value())
+		branchName = strings.TrimSpace(branchName)
+		if branchName == "" {
+			return errMsg{fmt.Errorf("branch name cannot be empty")}
+		}
+
 		worktreePath, err := m.WorktreeManager.CreateWorktree(branchName)
 		if err != nil {
 			return errMsg{err}
@@ -930,13 +934,17 @@ func (m model) createWorktree() tea.Cmd {
 	}
 }
 
-func (m model) createBranch() tea.Cmd {
+func (m model) createBranch(branchName string) tea.Cmd {
 	return func() tea.Msg {
 		if m.WorktreeManager == nil {
 			return errMsg{fmt.Errorf("worktree manager not configured")}
 		}
 
-		branchName := strings.TrimSpace(m.TextInput.Value())
+		branchName = strings.TrimSpace(branchName)
+		if branchName == "" {
+			return errMsg{fmt.Errorf("branch name cannot be empty")}
+		}
+
 		if err := m.WorktreeManager.CreateBranch(branchName); err != nil {
 			return errMsg{err}
 		}
