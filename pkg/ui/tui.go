@@ -7,7 +7,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -20,6 +22,7 @@ import (
 
 type model struct {
 	TextInput          textinput.Model
+	PromptInput        textarea.Model
 	SubtaskInput       textinput.Model
 	Spinner            spinner.Model
 	Submitted          bool
@@ -221,6 +224,22 @@ func NewTUIWithDependenciesAndConfig(wm git.WorktreeManagerInterface, linearClie
 	ti.PlaceholderStyle = helpStyle
 	ti.CursorStyle = cursorStyle
 
+	// Initialize multiline prompt input for async queued prompts
+	pi := textarea.New()
+	pi.Prompt = "prompt> "
+	pi.Placeholder = "type prompt (Enter submits, Alt+Enter/Shift+Enter newline)"
+	pi.ShowLineNumbers = false
+	pi.CharLimit = 0
+	pi.SetHeight(5)
+	pi.SetWidth(80)
+	pi.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "shift+enter", "ctrl+j"))
+	pi.FocusedStyle.Prompt = selectedStyle
+	pi.FocusedStyle.Text = titleStyle
+	pi.FocusedStyle.Placeholder = helpStyle
+	pi.BlurredStyle.Prompt = selectedStyle
+	pi.BlurredStyle.Text = titleStyle
+	pi.BlurredStyle.Placeholder = helpStyle
+
 	// Initialize subtask text input
 	si := textinput.New()
 	si.Placeholder = "enter subtask title"
@@ -240,6 +259,7 @@ func NewTUIWithDependenciesAndConfig(wm git.WorktreeManagerInterface, linearClie
 
 	return model{
 		TextInput:          ti,
+		PromptInput:        pi,
 		SubtaskInput:       si,
 		Spinner:            s,
 		Submitted:          false,
@@ -316,12 +336,58 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.TextInput.Width < 20 {
 			m.TextInput.Width = 20 // Minimum width
 		}
+		promptInputWidth := m.Width - 4
+		if promptInputWidth < 20 {
+			promptInputWidth = 20
+		}
+		m.PromptInput.SetWidth(promptInputWidth)
+		if m.Height > 12 {
+			m.PromptInput.SetHeight(5)
+		} else {
+			m.PromptInput.SetHeight(3)
+		}
 
 		return m, nil
 
 	case tea.KeyMsg:
 		if m.Done {
 			return m, tea.Quit
+		}
+
+		if m.PromptCaptureMode && m.ActiveCreationMode == creationModeWorktree {
+			switch msg.Type {
+			case tea.KeyCtrlC, tea.KeyEsc:
+				m.Cancelled = true
+				return m, tea.Quit
+			case tea.KeyEnter:
+				if msg.Alt {
+					m.PromptInput.InsertRune('\n')
+					return m, nil
+				}
+				if m.PromptSubmitted {
+					return m, nil
+				}
+
+				m.CapturedPrompt = m.PromptInput.Value()
+				m.PromptSubmitted = true
+
+				if m.CreationFinished {
+					m.PromptCaptureMode = false
+					m.Done = true
+					m.Success = true
+					m.Result = fmt.Sprintf("Worktree created at: %s", m.WorktreePath)
+					return m, tea.Quit
+				}
+
+				return m, nil
+			}
+			if msg.String() == "shift+enter" || msg.Type == tea.KeyCtrlJ {
+				m.PromptInput.InsertRune('\n')
+				return m, nil
+			}
+
+			m.PromptInput, cmd = m.PromptInput.Update(msg)
+			return m, cmd
 		}
 
 		switch msg.Type {
@@ -353,25 +419,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case tea.KeyEnter:
-			if m.PromptCaptureMode && m.ActiveCreationMode == creationModeWorktree {
-				if m.PromptSubmitted {
-					return m, nil
-				}
-
-				m.CapturedPrompt = m.TextInput.Value()
-				m.PromptSubmitted = true
-
-				if m.CreationFinished {
-					m.PromptCaptureMode = false
-					m.Done = true
-					m.Success = true
-					m.Result = fmt.Sprintf("Worktree created at: %s", m.WorktreePath)
-					return m, tea.Quit
-				}
-
-				return m, nil
-			}
-
 			if !m.Submitted {
 				// Check if we're in subtask input mode
 				if m.SubtaskInputMode {
@@ -409,6 +456,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.CreationFinished = false
 				m.PromptSubmitted = false
 				m.CapturedPrompt = ""
+				m.PromptInput.Reset()
+				m.PromptInput.Blur()
 
 				if m.CreationMode == creationModeWorktree && m.NeedsPromptCapture {
 					m.PromptCaptureMode = true
@@ -417,11 +466,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.FilteredIssues = nil
 					m.SelectedIssue = nil
 					m.AddSubtaskSelected = ""
-					m.InputMode = true
-					m.TextInput.Focus()
-					m.TextInput.Prompt = "prompt> "
-					m.TextInput.Placeholder = "enter prompt for command and press Enter"
-					m.TextInput.SetValue("")
+					m.InputMode = false
+					m.TextInput.Blur()
+					m.PromptInput.Focus()
 				} else {
 					m.PromptCaptureMode = false
 					m.TextInput.SetValue(branchName) // Set the input to the selected branch name
@@ -852,7 +899,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Update text inputs based on current mode
-	if m.InputMode && !m.SearchMode {
+	if m.PromptCaptureMode {
+		m.PromptInput, cmd = m.PromptInput.Update(msg)
+	} else if m.InputMode && !m.SearchMode {
 		m.TextInput, cmd = m.TextInput.Update(msg)
 	} else if m.SubtaskInputMode {
 		m.SubtaskInput, cmd = m.SubtaskInput.Update(msg)
@@ -1469,8 +1518,9 @@ func (m model) renderPromptCaptureView() string {
 	}
 	s.WriteString("\n")
 
-	m.TextInput.PromptStyle = selectedStyle
-	s.WriteString(m.TextInput.View())
+	s.WriteString(m.PromptInput.View())
+	s.WriteString("\n")
+	s.WriteString(helpStyle.Render("[enter submit] [alt+enter or shift+enter newline] [esc cancel]"))
 	return s.String()
 }
 

@@ -67,3 +67,49 @@ Feature: Async prompt capture while creating worktrees
       | command                                                                                                       |
       | git worktree add /mock/worktrees/spr-123-add-user-authentication -b spr-123-add-user-authentication main |
       | cd /mock/worktrees/spr-123-add-user-authentication && tool --a alpha --b alpha                            |
+
+  Scenario: Preserve multiline prompt text
+    Given the default worktree command is "codex \"$PROMPT\""
+    And worktree creation is delayed
+    And I start the Sprout TUI
+    When I press "down"
+    And I press "enter"
+    And I type "outline tests"
+    And I press "alt+enter"
+    And I type "include edge-cases"
+    And I press "enter"
+    And worktree creation completes
+    Then the following commands should be run:
+      | command                                                                                                              |
+      | git worktree add /mock/worktrees/spr-123-add-user-authentication -b spr-123-add-user-authentication main        |
+      | cd /mock/worktrees/spr-123-add-user-authentication && codex "outline tests\ninclude edge-cases"                 |
+
+  Scenario: Preserve multiline prompt text with shift+enter
+    Given the default worktree command is "codex \"$PROMPT\""
+    And worktree creation is delayed
+    And I start the Sprout TUI
+    When I press "down"
+    And I press "enter"
+    And I type "first line"
+    And I press "shift+enter"
+    And I type "second line"
+    And I press "enter"
+    And worktree creation completes
+    Then the following commands should be run:
+      | command                                                                                                     |
+      | git worktree add /mock/worktrees/spr-123-add-user-authentication -b spr-123-add-user-authentication main |
+      | cd /mock/worktrees/spr-123-add-user-authentication && codex "first line\nsecond line"                   |
+
+  Scenario: Prompt longer than 156 characters is not truncated
+    Given the default worktree command is "tool --a \"$PROMPT\""
+    And worktree creation is delayed
+    And I start the Sprout TUI
+    When I press "down"
+    And I press "enter"
+    And I type "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnop"
+    And I press "enter"
+    And worktree creation completes
+    Then the following commands should be run:
+      | command                                                                                                                                                                                                    |
+      | git worktree add /mock/worktrees/spr-123-add-user-authentication -b spr-123-add-user-authentication main                                                                                              |
+      | cd /mock/worktrees/spr-123-add-user-authentication && tool --a abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnop |

@@ -302,6 +302,13 @@ func (tc *TUITestContext) iPress(key string) error {
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
 	case "backspace":
 		keyMsg = tea.KeyMsg{Type: tea.KeyBackspace}
+	case "alt+enter":
+		keyMsg = tea.KeyMsg{Type: tea.KeyEnter, Alt: true}
+	case "shift+enter":
+		// Bubble Tea doesn't expose a dedicated KeyShiftEnter, so tests map this to ctrl+j.
+		keyMsg = tea.KeyMsg{Type: tea.KeyCtrlJ}
+	case "ctrl+s":
+		keyMsg = tea.KeyMsg{Type: tea.KeyCtrlS}
 	case "u":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}}
 	case "d":
@@ -336,6 +343,10 @@ func (tc *TUITestContext) iType(text string) error {
 	}
 
 	return nil
+}
+
+func (tc *TUITestContext) iTypeTheFollowingText(text *godog.DocString) error {
+	return tc.iType(text.Content)
 }
 
 // processCmd executes a command and handles any resulting messages (including batches)
@@ -717,6 +728,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Step(`^I start the Sprout TUI$`, tc.iStartTheSproutTUI)
 	ctx.Step(`^I press "([^"]*)"$`, tc.iPress)
 	ctx.Step(`^I type "([^"]*)"$`, tc.iType)
+	ctx.Step(`^I type the following text:$`, tc.iTypeTheFollowingText)
 	ctx.Step(`^the UI should display:$`, tc.theUIShouldDisplay)
 	ctx.Step(`^the UI should contain "([^"]*)"$`, tc.theUIShouldContain)
 	ctx.Step(`^the following commands should be run:$`, tc.theFollowingCommandsShouldBeRun)
