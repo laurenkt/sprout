@@ -89,6 +89,10 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
   // Command to run after creating a worktree in interactive mode
   // If not specified, exits cleanly without running any command
   "defaultCommand": "code .",
+
+  // Optional command to run when resuming an existing worktree from the TUI.
+  // If omitted, Sprout reuses defaultCommand only when it does not contain $PROMPT.
+  "resumeCommand": "claude --resume",
   
   // Linear API key for issue tracking integration
   // Get your key from Linear Settings > Account > Security & Access
@@ -106,6 +110,10 @@ Sprout supports configuration via `~/.sprout.json5` for customizing behavior:
   - `"code ."` - Open in VS Code
   - `"nvim"` - Open in Neovim
   - `"bash"` - Start a new shell session
+- **`resumeCommand`**: Command to execute when opening an existing worktree from the interactive work queue. Common examples:
+  - `"claude --resume"` - Resume the previous Claude session
+  - `"code ."` - Open the existing worktree in VS Code
+  - Supports `$WORKTREE_PATH`, `$BRANCH_NAME`, and `$REPO_NAME` placeholders.
   
 - **`linearApiKey`**: Your Linear personal API key for accessing Linear tickets. Required for Linear integration features.
 - **`worktreeBasePath`**: Base directory where worktrees are created for all repositories. Supports `$REPO_BASEPATH` (parent directory of the repo), `$REPO_NAME`, and `$BRANCH_NAME`. If `$BRANCH_NAME` is included, the template is treated as the full worktree path; otherwise the branch name is appended. If not set, Sprout uses a `.worktrees` directory next to the repository.

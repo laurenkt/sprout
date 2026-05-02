@@ -77,6 +77,20 @@ func TestGetDefaultCommand(t *testing.T) {
 	}
 }
 
+func TestGetResumeCommand(t *testing.T) {
+	cfg := &Config{ResumeCommand: "claude --resume"}
+	result := cfg.GetResumeCommand()
+	expected := []string{"claude", "--resume"}
+	if len(result) != len(expected) {
+		t.Fatalf("GetResumeCommand() returned %d args, expected %d", len(result), len(expected))
+	}
+	for i := range expected {
+		if result[i] != expected[i] {
+			t.Fatalf("GetResumeCommand() arg[%d] = %q, want %q", i, result[i], expected[i])
+		}
+	}
+}
+
 func TestNeedsPromptCapture(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -163,6 +177,60 @@ func TestResolveDefaultCommand(t *testing.T) {
 			for i := range result {
 				if result[i] != tt.expected[i] {
 					t.Fatalf("ResolveDefaultCommand() arg[%d] = %q, want %q", i, result[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestResolveResumeCommand(t *testing.T) {
+	ctx := ResumeContext{
+		WorktreePath: "/tmp/worktrees/feature",
+		BranchName:   "feature",
+		RepoName:     "sprout",
+	}
+
+	tests := []struct {
+		name        string
+		resumeArgs  []string
+		defaultArgs []string
+		expected    []string
+	}{
+		{
+			name:        "uses resume command",
+			resumeArgs:  []string{"claude", "--resume"},
+			defaultArgs: []string{"claude", "$PROMPT"},
+			expected:    []string{"claude", "--resume"},
+		},
+		{
+			name:        "falls back to non prompt default",
+			resumeArgs:  nil,
+			defaultArgs: []string{"code", "."},
+			expected:    []string{"code", "."},
+		},
+		{
+			name:        "does not fall back to prompt default",
+			resumeArgs:  nil,
+			defaultArgs: []string{"claude", "$PROMPT"},
+			expected:    nil,
+		},
+		{
+			name:        "substitutes resume placeholders",
+			resumeArgs:  []string{"tool", "$WORKTREE_PATH", "$BRANCH_NAME", "$REPO_NAME"},
+			defaultArgs: nil,
+			expected:    []string{"tool", "/tmp/worktrees/feature", "feature", "sprout"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ResolveResumeCommand(tt.resumeArgs, tt.defaultArgs, ctx)
+			if len(result) != len(tt.expected) {
+				t.Fatalf("ResolveResumeCommand() returned %d args, expected %d: %v", len(result), len(tt.expected), result)
+			}
+			for i := range tt.expected {
+				if result[i] != tt.expected[i] {
+					t.Fatalf("ResolveResumeCommand() arg[%d] = %q, want %q", i, result[i], tt.expected[i])
 				}
 			}
 		})

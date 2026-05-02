@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -38,6 +40,14 @@ type model struct {
 	LinearIssues       []linear.Issue
 	LinearLoading      bool
 	LinearError        string
+	Worktrees          []git.Worktree
+	WorktreesLoading   bool
+	WorktreesError     string
+	ShowAllWorkItems   bool
+	SelectedWorktree   string
+	ResumeBranch       string
+	ResumeCommandArgs  []string
+	Resumed            bool
 	SelectedIssue      *linear.Issue  // nil for custom input mode
 	InputMode          bool           // true when in custom input mode, false when selecting tickets
 	CreatingSubtask    bool           // true while creating subtask
@@ -192,6 +202,7 @@ func NewTUIWithDependenciesAndConfig(wm git.WorktreeManagerInterface, linearClie
 	}
 
 	defaultCommandArgs := cfg.GetDefaultCommand()
+	resumeCommandArgs := cfg.GetResumeCommand()
 
 	// Get repository name for the prompt
 	repoName, err := git.GetRepositoryName()
@@ -275,6 +286,14 @@ func NewTUIWithDependenciesAndConfig(wm git.WorktreeManagerInterface, linearClie
 		LinearIssues:       nil,
 		LinearLoading:      linearClient != nil, // Start loading if we have a client
 		LinearError:        "",
+		Worktrees:          nil,
+		WorktreesLoading:   wm != nil,
+		WorktreesError:     "",
+		ShowAllWorkItems:   false,
+		SelectedWorktree:   "",
+		ResumeBranch:       "",
+		ResumeCommandArgs:  resumeCommandArgs,
+		Resumed:            false,
 		SelectedIssue:      nil, // Start with custom input selected
 		InputMode:          true,
 		CreatingSubtask:    false,
@@ -309,9 +328,12 @@ func (m model) Init() tea.Cmd {
 	if m.LinearClient != nil {
 		cmds = append(cmds, m.fetchLinearIssues())
 	}
+	if m.WorktreeManager != nil {
+		cmds = append(cmds, m.fetchWorktrees())
+	}
 
 	// Start spinner if we have any loading states
-	if m.LinearLoading || m.Creating || m.CreatingSubtask {
+	if m.LinearLoading || m.WorktreesLoading || m.Creating || m.CreatingSubtask {
 		cmds = append(cmds, m.Spinner.Tick)
 	}
 
@@ -433,6 +455,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(m.createSubtaskInline(m.SubtaskParentID, title), m.Spinner.Tick)
 				}
 
+				if selected := m.selectedRow(); selected != nil && selected.Worktree != nil && selected.Kind != workQueueRowAddSubtask {
+					m.Submitted = true
+					m.Creating = false
+					m.Done = true
+					m.Success = true
+					m.Resumed = true
+					m.WorktreePath = selected.Worktree.Path
+					m.ResumeBranch = selected.Worktree.Branch
+					m.Result = fmt.Sprintf("Worktree resumed at: %s", selected.Worktree.Path)
+					return m, tea.Quit
+				}
+
 				// Regular worktree creation logic
 				var branchName string
 				if m.SelectedIssue == nil {
@@ -495,159 +529,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyUp:
 			if !m.Submitted {
-				if m.SearchMode {
-					// In search mode, navigate through filtered results
-					if len(m.FilteredIssues) > 0 {
-						if m.SelectedIssue == nil {
-							// Nothing selected, go to last filtered issue
-							m.SelectedIssue = &m.FilteredIssues[len(m.FilteredIssues)-1]
-							m.InputMode = false
-							// Don't update placeholder in search mode
-						} else {
-							// Find current issue in filtered list and go to previous
-							for i, issue := range m.FilteredIssues {
-								if issue.ID == m.SelectedIssue.ID {
-									if i > 0 {
-										m.SelectedIssue = &m.FilteredIssues[i-1]
-									} else {
-										// At first issue, go back to search input
-										m.SelectedIssue = nil
-										m.InputMode = true
-									}
-									break
-								}
-							}
-						}
-					}
-				} else if m.SelectedIssue == nil && m.AddSubtaskSelected == "" {
-					// Currently in custom input mode, try to go to last visible issue
-					if len(m.LinearIssues) > 0 {
-						m.SelectedIssue = m.getLastVisibleIssue()
-						m.InputMode = false
-						m.TextInput.Blur()
-						if !m.SearchMode {
-							m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
-						}
-					}
-				} else if m.AddSubtaskSelected != "" {
-					// From "Add subtask" selection, go to parent issue
-					if parent := m.findIssueByID(m.AddSubtaskSelected); parent != nil {
-						m.SelectedIssue = parent
-						m.AddSubtaskSelected = ""
-						if !m.SearchMode {
-							m.TextInput.Placeholder = parent.GetBranchName()
-						}
-					}
-				} else if m.SelectedIssue != nil {
-					// Try to go to previous issue
-					if prevIssue := m.SelectedIssue.PrevVisible(m.LinearIssues); prevIssue != nil {
-						m.SelectedIssue = prevIssue
-						if !m.SearchMode {
-							m.TextInput.Placeholder = prevIssue.GetBranchName()
-						}
-					} else {
-						// Go back to custom input mode
-						m.SelectedIssue = nil
-						m.InputMode = true
-						m.TextInput.Focus()
-						m.TextInput.Placeholder = m.DefaultPlaceholder
-						m.CreationMode = creationModeBranchOnly
-					}
-				}
+				m.moveSelection(-1)
 			}
 			return m, nil
 
 		case tea.KeyDown:
 			if !m.Submitted {
-				if m.SearchMode {
-					// In search mode, navigate through filtered results
-					if len(m.FilteredIssues) > 0 {
-						if m.SelectedIssue == nil {
-							// Nothing selected, go to first filtered issue
-							m.SelectedIssue = &m.FilteredIssues[0]
-							m.InputMode = false
-							// Don't update placeholder in search mode
-						} else {
-							// Find current issue in filtered list and go to next
-							for i, issue := range m.FilteredIssues {
-								if issue.ID == m.SelectedIssue.ID {
-									if i < len(m.FilteredIssues)-1 {
-										m.SelectedIssue = &m.FilteredIssues[i+1]
-									}
-									// else stay on last issue
-									break
-								}
-							}
-						}
-					}
-				} else if m.AddSubtaskSelected != "" {
-					// From "Add subtask" selection, go to next sibling of parent
-					parent := m.findIssueByID(m.AddSubtaskSelected)
-					if parent != nil {
-						if nextSib := parent.NextSibling(m.LinearIssues); nextSib != nil {
-							m.SelectedIssue = nextSib
-							m.AddSubtaskSelected = ""
-							m.TextInput.Placeholder = nextSib.GetBranchName()
-						} else {
-							// No next sibling, wrap to custom input
-							m.SelectedIssue = nil
-							m.AddSubtaskSelected = ""
-							m.InputMode = true
-							m.TextInput.Focus()
-							m.TextInput.Placeholder = m.DefaultPlaceholder
-						}
-					}
-				} else if m.SelectedIssue == nil && len(m.LinearIssues) > 0 {
-					// Move from custom input to first visible issue
-					m.SelectedIssue = m.getFirstVisibleIssue()
-					m.InputMode = false
-					if !m.SearchMode {
-						m.TextInput.Blur()
-						m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
-					}
-				} else if m.SelectedIssue != nil {
-					// Handle down navigation based on current selection
-					if m.SelectedIssue.Expanded && len(m.SelectedIssue.Children) > 0 {
-						// From expanded issue with children, go to first child
-						m.SelectedIssue = &m.SelectedIssue.Children[0]
-						m.TextInput.Placeholder = m.SelectedIssue.GetBranchName()
-					} else if m.SelectedIssue.Expanded {
-						// From expanded issue with no children, go to "Add subtask" selection
-						m.AddSubtaskSelected = m.SelectedIssue.ID
-						m.SelectedIssue = nil
-					} else {
-						// From non-expanded issue, go to next sibling or up the tree
-						if nextSib := m.SelectedIssue.NextSibling(m.LinearIssues); nextSib != nil {
-							m.SelectedIssue = nextSib
-							m.TextInput.Placeholder = nextSib.GetBranchName()
-						} else {
-							// No next sibling, check if parent is expanded
-							if m.SelectedIssue.Parent != nil && m.SelectedIssue.Parent.Expanded {
-								// Go to "Add subtask" selection for the parent
-								m.AddSubtaskSelected = m.SelectedIssue.Parent.ID
-								m.SelectedIssue = nil
-							} else {
-								// Go up and try parent's next sibling
-								current := m.SelectedIssue.Parent
-								for current != nil {
-									if nextSib := current.NextSibling(m.LinearIssues); nextSib != nil {
-										m.SelectedIssue = nextSib
-										m.TextInput.Placeholder = nextSib.GetBranchName()
-										break
-									}
-									current = current.Parent
-								}
-								if current == nil {
-									// End of tree, wrap to custom input
-									m.SelectedIssue = nil
-									m.InputMode = true
-									m.TextInput.Focus()
-									m.TextInput.Placeholder = m.DefaultPlaceholder
-								}
-							}
-						}
-					}
-				}
+				m.moveSelection(1)
 			}
 			return m, nil
 
@@ -713,6 +601,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyRunes:
 			if !m.Submitted && !m.SubtaskInputMode && !m.SearchMode && len(msg.Runes) == 1 {
 				switch msg.Runes[0] {
+				case 'a', 'A':
+					if m.InputMode && m.TextInput.Value() != "" {
+						break
+					}
+					if len(m.Worktrees) == 0 {
+						break
+					}
+					m.ShowAllWorkItems = !m.ShowAllWorkItems
+					m.selectInput()
+					return m, nil
 				case 'u', 'U':
 					if m.SelectedIssue != nil && m.LinearClient != nil {
 						return m, m.unassignIssue(m.SelectedIssue.ID)
@@ -812,6 +710,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.LinearLoading = false
 		m.LinearError = msg.err.Error()
 
+	case worktreesLoadedMsg:
+		m.WorktreesLoading = false
+		m.Worktrees = msg.worktrees
+		m.WorktreesError = ""
+
+	case worktreesErrorMsg:
+		m.WorktreesLoading = false
+		m.WorktreesError = msg.err.Error()
+
 	case childrenLoadedMsg:
 		m.setIssueChildren(msg.parentID, msg.children)
 		// Update placeholder if a Linear ticket is currently selected (but not in search mode)
@@ -889,7 +796,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Update spinner if any loading state is active
-	if m.LinearLoading || m.Creating || m.CreatingSubtask {
+	if m.LinearLoading || m.WorktreesLoading || m.Creating || m.CreatingSubtask {
 		var spinnerCmd tea.Cmd
 		m.Spinner, spinnerCmd = m.Spinner.Update(msg)
 		if cmd != nil {
@@ -1048,6 +955,16 @@ func (m model) fetchLinearIssues() tea.Cmd {
 			return linearErrorMsg{err}
 		}
 		return linearIssuesLoadedMsg{issues}
+	}
+}
+
+func (m model) fetchWorktrees() tea.Cmd {
+	return func() tea.Msg {
+		worktrees, err := m.WorktreeManager.ListWorktreesForTUI()
+		if err != nil {
+			return worktreesErrorMsg{err}
+		}
+		return worktreesLoadedMsg{worktrees}
 	}
 }
 
@@ -1344,6 +1261,275 @@ func (m *model) selectAfterIssueRemoval(snapshot unassignedIssueSnapshot) {
 	}
 }
 
+func (m *model) visibleWorkQueueRows() []workQueueRow {
+	allRows := m.buildWorkQueueRows()
+	if m.SearchMode {
+		return m.filterWorkQueueRows(allRows, m.SearchQuery)
+	}
+	return allRows
+}
+
+func (m *model) buildWorkQueueRows() []workQueueRow {
+	matchedBranches := make(map[string]bool)
+	worktreesByIssue := m.matchWorktreesToIssues(&matchedBranches)
+
+	var activeRows []workQueueRow
+	var closedRows []workQueueRow
+	for i := range m.LinearIssues {
+		row := m.issueRow(&m.LinearIssues[i], worktreesByIssue)
+		if row.Closed && len(m.Worktrees) > 0 {
+			closedRows = append(closedRows, row)
+		} else {
+			activeRows = append(activeRows, row)
+		}
+	}
+
+	for i := range m.Worktrees {
+		wt := m.Worktrees[i]
+		if !m.shouldConsiderWorktree(wt) || matchedBranches[wt.Branch] {
+			continue
+		}
+		row := workQueueRow{
+			Kind:     workQueueRowWorktree,
+			Worktree: &m.Worktrees[i],
+			Closed:   wt.Merged,
+			Updated:  wt.UpdatedAt,
+		}
+		if row.Closed {
+			closedRows = append(closedRows, row)
+		} else {
+			activeRows = append(activeRows, row)
+		}
+	}
+
+	sortRows(activeRows)
+	sortRows(closedRows)
+
+	var rows []workQueueRow
+	for _, row := range activeRows {
+		rows = append(rows, m.expandRow(row, worktreesByIssue)...)
+		if !m.ShowAllWorkItems && len(rows) >= maxVisibleActiveRows {
+			return rows[:maxVisibleActiveRows]
+		}
+	}
+	if m.ShowAllWorkItems {
+		for _, row := range closedRows {
+			rows = append(rows, m.expandRow(row, worktreesByIssue)...)
+		}
+	}
+	return rows
+}
+
+func sortRows(rows []workQueueRow) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Updated.IsZero() && rows[j].Updated.IsZero() {
+			return false
+		}
+		if !rows[i].Updated.Equal(rows[j].Updated) {
+			return rows[i].Updated.After(rows[j].Updated)
+		}
+		return rowSortLabel(rows[i]) < rowSortLabel(rows[j])
+	})
+}
+
+func rowSortLabel(row workQueueRow) string {
+	if row.Issue != nil {
+		return strings.ToLower(row.Issue.Identifier)
+	}
+	if row.Worktree != nil {
+		return strings.ToLower(row.Worktree.Branch)
+	}
+	return ""
+}
+
+func (m *model) issueRow(issue *linear.Issue, worktreesByIssue map[string]*git.Worktree) workQueueRow {
+	wt := worktreesByIssue[strings.ToUpper(issue.Identifier)]
+	updated := issue.UpdatedAt
+	if updated.IsZero() && wt != nil && wt.UpdatedAt.After(updated) {
+		updated = wt.UpdatedAt
+	}
+	return workQueueRow{
+		Kind:     workQueueRowIssue,
+		Issue:    issue,
+		Worktree: wt,
+		Closed:   isClosedIssue(*issue) || (wt != nil && wt.Merged),
+		Updated:  updated,
+	}
+}
+
+func (m *model) expandRow(row workQueueRow, worktreesByIssue map[string]*git.Worktree) []workQueueRow {
+	rows := []workQueueRow{row}
+	if row.Kind != workQueueRowIssue || row.Issue == nil || !row.Issue.Expanded {
+		return rows
+	}
+	for i := range row.Issue.Children {
+		childRow := m.issueRow(&row.Issue.Children[i], worktreesByIssue)
+		if childRow.Closed && len(m.Worktrees) > 0 && !m.ShowAllWorkItems {
+			continue
+		}
+		rows = append(rows, m.expandRow(childRow, worktreesByIssue)...)
+	}
+	rows = append(rows, workQueueRow{Kind: workQueueRowAddSubtask, ParentID: row.Issue.ID})
+	return rows
+}
+
+func (m *model) matchWorktreesToIssues(matchedBranches *map[string]bool) map[string]*git.Worktree {
+	result := make(map[string]*git.Worktree)
+	var walk func([]linear.Issue)
+	walk = func(issues []linear.Issue) {
+		for i := range issues {
+			identifier := strings.ToUpper(issues[i].Identifier)
+			for j := range m.Worktrees {
+				wt := &m.Worktrees[j]
+				if !m.shouldConsiderWorktree(*wt) {
+					continue
+				}
+				if branchMatchesIdentifier(wt.Branch, identifier) {
+					if existing := result[identifier]; existing == nil || wt.UpdatedAt.After(existing.UpdatedAt) {
+						result[identifier] = wt
+					}
+					(*matchedBranches)[wt.Branch] = true
+				}
+			}
+			if len(issues[i].Children) > 0 {
+				walk(issues[i].Children)
+			}
+		}
+	}
+	walk(m.LinearIssues)
+	return result
+}
+
+func branchMatchesIdentifier(branch, identifier string) bool {
+	branch = strings.ToLower(branch)
+	identifier = strings.ToLower(identifier)
+	return branch == identifier || strings.HasPrefix(branch, identifier+"-") || strings.HasPrefix(branch, identifier+"/")
+}
+
+func (m *model) shouldConsiderWorktree(wt git.Worktree) bool {
+	if wt.Prunable || wt.Branch == "" {
+		return false
+	}
+	branch := strings.ToLower(wt.Branch)
+	return branch != "main" && branch != "master"
+}
+
+func isClosedIssue(issue linear.Issue) bool {
+	stateType := strings.ToLower(issue.State.Type)
+	return stateType == "completed" || stateType == "done" || stateType == "canceled" || stateType == "cancelled"
+}
+
+func (m *model) filterWorkQueueRows(rows []workQueueRow, query string) []workQueueRow {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return rows
+	}
+	var filtered []workQueueRow
+	for _, row := range rows {
+		target := ""
+		if row.Issue != nil {
+			target = row.Issue.Identifier + " " + row.Issue.Title
+		} else if row.Worktree != nil {
+			target = row.Worktree.Branch + " " + row.Worktree.Path
+		}
+		if fuzzy.MatchNormalized(query, strings.ToLower(target)) {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
+
+func (m *model) selectedRow() *workQueueRow {
+	rows := m.visibleWorkQueueRows()
+	for i := range rows {
+		row := rows[i]
+		switch row.Kind {
+		case workQueueRowIssue:
+			if m.SelectedIssue != nil && row.Issue != nil && row.Issue.ID == m.SelectedIssue.ID {
+				return &row
+			}
+		case workQueueRowWorktree:
+			if row.Worktree != nil && row.Worktree.Branch == m.SelectedWorktree {
+				return &row
+			}
+		case workQueueRowAddSubtask:
+			if row.ParentID == m.AddSubtaskSelected {
+				return &row
+			}
+		}
+	}
+	return nil
+}
+
+func (m *model) selectRow(row workQueueRow) {
+	m.SelectedIssue = nil
+	m.SelectedWorktree = ""
+	m.AddSubtaskSelected = ""
+	m.InputMode = false
+	m.TextInput.Blur()
+
+	switch row.Kind {
+	case workQueueRowIssue:
+		m.SelectedIssue = row.Issue
+		if row.Worktree != nil {
+			m.TextInput.Placeholder = row.Worktree.Branch
+		} else if row.Issue != nil {
+			m.TextInput.Placeholder = row.Issue.GetBranchName()
+		}
+	case workQueueRowWorktree:
+		if row.Worktree != nil {
+			m.SelectedWorktree = row.Worktree.Branch
+			m.TextInput.Placeholder = row.Worktree.Branch
+		}
+	case workQueueRowAddSubtask:
+		m.AddSubtaskSelected = row.ParentID
+	}
+}
+
+func (m *model) selectInput() {
+	m.SelectedIssue = nil
+	m.SelectedWorktree = ""
+	m.AddSubtaskSelected = ""
+	m.InputMode = true
+	m.TextInput.Focus()
+	m.TextInput.Placeholder = m.DefaultPlaceholder
+}
+
+func (m *model) moveSelection(delta int) {
+	rows := m.visibleWorkQueueRows()
+	if len(rows) == 0 {
+		m.selectInput()
+		return
+	}
+	if m.SelectedIssue == nil && m.SelectedWorktree == "" && m.AddSubtaskSelected == "" {
+		if delta > 0 {
+			m.selectRow(rows[0])
+		} else {
+			m.selectRow(rows[len(rows)-1])
+		}
+		return
+	}
+	current := -1
+	for i := range rows {
+		row := rows[i]
+		if (row.Kind == workQueueRowIssue && m.SelectedIssue != nil && row.Issue != nil && row.Issue.ID == m.SelectedIssue.ID) ||
+			(row.Kind == workQueueRowWorktree && row.Worktree != nil && row.Worktree.Branch == m.SelectedWorktree) ||
+			(row.Kind == workQueueRowAddSubtask && row.ParentID == m.AddSubtaskSelected) {
+			current = i
+			break
+		}
+	}
+	next := current + delta
+	if next < 0 || next >= len(rows) {
+		m.selectInput()
+		if delta < 0 {
+			m.CreationMode = creationModeBranchOnly
+		}
+		return
+	}
+	m.selectRow(rows[next])
+}
+
 type errMsg struct {
 	err error
 }
@@ -1362,6 +1548,14 @@ type linearIssuesLoadedMsg struct {
 }
 
 type linearErrorMsg struct {
+	err error
+}
+
+type worktreesLoadedMsg struct {
+	worktrees []git.Worktree
+}
+
+type worktreesErrorMsg struct {
 	err error
 }
 
@@ -1406,6 +1600,25 @@ type issueDoneMsg struct {
 type issueDoneErrorMsg struct {
 	err error
 }
+
+type workQueueRowKind int
+
+const (
+	workQueueRowIssue workQueueRowKind = iota
+	workQueueRowWorktree
+	workQueueRowAddSubtask
+)
+
+type workQueueRow struct {
+	Kind     workQueueRowKind
+	Issue    *linear.Issue
+	Worktree *git.Worktree
+	ParentID string
+	Closed   bool
+	Updated  time.Time
+}
+
+const maxVisibleActiveRows = 20
 
 func (m model) View() string {
 	if m.Done {
@@ -1457,7 +1670,7 @@ func (m model) View() string {
 		}
 	} else {
 		// Normal mode - adjust prompt style based on selection
-		if m.SelectedIssue == nil {
+		if m.SelectedIssue == nil && m.SelectedWorktree == "" && m.AddSubtaskSelected == "" {
 			// When input is selected, use selected style for prompt
 			m.TextInput.PromptStyle = selectedStyle
 		} else {
@@ -1469,20 +1682,20 @@ func (m model) View() string {
 	s.WriteString("\n")
 
 	// Display Linear tickets tree if available
-	if m.LinearClient != nil {
-		if m.LinearLoading {
-			s.WriteString(fmt.Sprintf("%s Loading tickets...", m.Spinner.View()))
-		} else if m.LinearError != "" {
-			s.WriteString(errorStyle.Render("Error: " + m.LinearError))
-		} else if len(m.LinearIssues) == 0 {
+	if m.LinearLoading || m.WorktreesLoading {
+		s.WriteString(fmt.Sprintf("%s Loading work queue...", m.Spinner.View()))
+	} else if m.LinearError != "" {
+		s.WriteString(errorStyle.Render("Error: " + m.LinearError))
+	} else if m.WorktreesError != "" {
+		s.WriteString(errorStyle.Render("Error: " + m.WorktreesError))
+	} else {
+		treeView := m.buildWorkQueueTree()
+		if treeView != "" {
+			trimmedTree := strings.TrimRight(treeView, "\n")
+			s.WriteString(trimmedTree)
+			s.WriteString("\n")
+		} else if m.LinearClient != nil && !m.SearchMode {
 			s.WriteString(helpStyle.Render("No assigned tickets found"))
-		} else {
-			treeView := m.buildSimpleLinearTree()
-			if treeView != "" {
-				trimmedTree := strings.TrimRight(treeView, "\n")
-				s.WriteString(trimmedTree)
-				s.WriteString("\n")
-			}
 		}
 	}
 
@@ -1494,7 +1707,14 @@ func (m model) View() string {
 	if m.CreationMode == creationModeBranchOnly {
 		modeLabel = "[branch <tab>]"
 	}
-	hotkeys := modeLabel + " [u unassign] [d done] [z undo]"
+	allLabel := ""
+	if len(m.Worktrees) > 0 {
+		allLabel = " [a all]"
+		if m.ShowAllWorkItems {
+			allLabel = " [a active]"
+		}
+	}
+	hotkeys := modeLabel + allLabel + " [u unassign] [d done] [z undo]"
 	s.WriteString(helpStyle.Render(hotkeys))
 
 	return s.String()
@@ -1559,6 +1779,9 @@ func (m model) buildSimpleLinearTree() string {
 			}
 		}
 	}
+	if len(m.Worktrees) > 0 && maxIdentifierWidth > 0 && maxIdentifierWidth < 8 {
+		maxIdentifierWidth = 8
+	}
 
 	// Calculate max widths from all issues (including nested children)
 	if m.SearchMode {
@@ -1590,6 +1813,143 @@ func (m model) buildSimpleLinearTree() string {
 	}
 
 	return root.String()
+}
+
+func (m model) buildWorkQueueTree() string {
+	rows := m.visibleWorkQueueRows()
+	if len(rows) == 0 {
+		return ""
+	}
+
+	maxIdentifierWidth := 0
+	maxStatusWidth := 0
+	for _, row := range rows {
+		if row.Issue == nil {
+			continue
+		}
+		if width := lipgloss.Width(row.Issue.Identifier); width > maxIdentifierWidth {
+			maxIdentifierWidth = width
+		}
+		if width := lipgloss.Width(row.Issue.State.Name); width > maxStatusWidth {
+			maxStatusWidth = width
+		}
+	}
+	if len(m.Worktrees) > 0 && maxIdentifierWidth > 0 && maxIdentifierWidth < 8 {
+		maxIdentifierWidth = 8
+	}
+
+	var s strings.Builder
+	for i, row := range rows {
+		depth := rowDepth(row)
+		s.WriteString(m.treePrefix(rows, i, depth))
+		s.WriteString(m.renderWorkQueueRow(row, maxIdentifierWidth, maxStatusWidth))
+		if i < len(rows)-1 {
+			s.WriteString("\n")
+		}
+	}
+	return s.String()
+}
+
+func rowDepth(row workQueueRow) int {
+	if row.Issue != nil {
+		return row.Issue.Depth
+	}
+	if row.Kind == workQueueRowAddSubtask {
+		return 1
+	}
+	return 0
+}
+
+func (m model) treePrefix(rows []workQueueRow, index, depth int) string {
+	var prefix strings.Builder
+	for level := 0; level < depth; level++ {
+		if hasLaterAtDepth(rows, index, level) {
+			prefix.WriteString("│  ")
+		} else {
+			prefix.WriteString("   ")
+		}
+	}
+	if hasLaterAtDepth(rows, index, depth) {
+		prefix.WriteString("├──")
+	} else {
+		prefix.WriteString("└──")
+	}
+	return expandedStyle.Render(prefix.String())
+}
+
+func hasLaterAtDepth(rows []workQueueRow, index, depth int) bool {
+	for i := index + 1; i < len(rows); i++ {
+		nextDepth := rowDepth(rows[i])
+		if nextDepth < depth {
+			return false
+		}
+		if nextDepth == depth {
+			return true
+		}
+	}
+	return false
+}
+
+func (m model) renderWorkQueueRow(row workQueueRow, maxIdentifierWidth, maxStatusWidth int) string {
+	var content string
+	switch row.Kind {
+	case workQueueRowWorktree:
+		if row.Worktree != nil {
+			content = titleStyle.Render(row.Worktree.Branch)
+		}
+	case workQueueRowAddSubtask:
+		if parent := m.findIssueByID(row.ParentID); parent != nil && parent.ShowingSubtaskEntry {
+			if m.SubtaskInputMode && m.SubtaskParentID == row.ParentID {
+				content = m.SubtaskInput.View()
+			} else {
+				content = addSubtaskStyle.Render("+ " + parent.SubtaskEntryText)
+			}
+		} else {
+			content = addSubtaskStyle.Render("+ Add subtask")
+		}
+	case workQueueRowIssue:
+		if row.Issue != nil {
+			content = m.renderIssueContent(*row.Issue, maxIdentifierWidth, maxStatusWidth)
+		}
+	}
+
+	selected := false
+	switch row.Kind {
+	case workQueueRowIssue:
+		selected = m.SelectedIssue != nil && row.Issue != nil && row.Issue.ID == m.SelectedIssue.ID
+	case workQueueRowWorktree:
+		selected = row.Worktree != nil && row.Worktree.Branch == m.SelectedWorktree
+	case workQueueRowAddSubtask:
+		selected = row.ParentID == m.AddSubtaskSelected
+	}
+	if selected {
+		return selectedStyle.Render(content)
+	}
+	return normalStyle.Render(content)
+}
+
+func (m model) renderIssueContent(issue linear.Issue, maxIdentifierWidth, maxStatusWidth int) string {
+	title := issue.Title
+	statusText := issue.State.Name
+	statusStyle := m.getStatusStyle(issue.State)
+	styledStatus := statusStyle.Render(statusText)
+
+	statusWidth := lipgloss.Width(statusText)
+	treePrefixWidth := (issue.Depth + 1) * 3
+	marginWidth := 15
+	availableWidth := m.Width - maxIdentifierWidth - maxStatusWidth - treePrefixWidth - marginWidth
+	if availableWidth < 20 {
+		availableWidth = 20
+	}
+	if len(title) > availableWidth && availableWidth > 3 {
+		title = title[:availableWidth-3] + "..."
+	}
+
+	identifier := identifierStyle.Render(issue.Identifier)
+	titleText := titleStyle.Render(title)
+	identifierPadding := maxIdentifierWidth - lipgloss.Width(issue.Identifier)
+	statusPadding := maxStatusWidth - statusWidth
+	return fmt.Sprintf("%s%s  %s%s  %s", identifier, strings.Repeat(" ", identifierPadding), styledStatus, strings.Repeat(" ", statusPadding), titleText)
 }
 
 // addIssueNode recursively adds an issue and its children to the tree
@@ -1701,7 +2061,30 @@ func RunInteractive() error {
 	}
 
 	// After TUI exits, check if we need to execute a default command
-	if resultModel, ok := finalModel.(model); ok && resultModel.Success && resultModel.WorktreePath != "" {
+	if resultModel, ok := finalModel.(model); ok && resultModel.Success && resultModel.WorktreePath != "" && resultModel.Resumed {
+		repoName, _ := git.GetRepositoryName()
+		resolvedCmd := config.ResolveResumeCommand(resultModel.ResumeCommandArgs, resultModel.DefaultCommandArgs, config.ResumeContext{
+			WorktreePath: resultModel.WorktreePath,
+			BranchName:   resultModel.ResumeBranch,
+			RepoName:     repoName,
+		})
+		if len(resolvedCmd) > 0 {
+			cmd := exec.Command(resolvedCmd[0], resolvedCmd[1:]...)
+			cmd.Dir = resultModel.WorktreePath
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			if err := cmd.Run(); err != nil {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
+						os.Exit(status.ExitStatus())
+					}
+				}
+				os.Exit(1)
+			}
+		}
+	} else if resultModel, ok := finalModel.(model); ok && resultModel.Success && resultModel.WorktreePath != "" {
 		resolvedCmd := config.ResolveDefaultCommand(resultModel.DefaultCommandArgs, resultModel.CapturedPrompt)
 		if len(resolvedCmd) > 0 {
 			// Execute the default command in the worktree directory

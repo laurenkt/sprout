@@ -187,7 +187,6 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 			issues(
 				filter: {
 					assignee: { isMe: { eq: true } }
-					state: { type: { nin: ["completed", "canceled"] } }
 				}
 				orderBy: updatedAt
 			) {
@@ -295,9 +294,6 @@ func (c *Client) GetIssueChildren(issueID string) ([]Issue, error) {
 		query($issueId: String!) {
 			issue(id: $issueId) {
 				children(
-					filter: {
-						state: { type: { nin: ["completed", "canceled"] } }
-					}
 				) {
 					nodes {
 						id
