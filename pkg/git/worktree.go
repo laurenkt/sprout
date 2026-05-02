@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sprout/pkg/config"
 	"sprout/pkg/github"
@@ -16,6 +17,7 @@ type WorktreeManagerInterface interface {
 	CreateWorktree(branchName string) (string, error)
 	CreateBranch(branchName string) error
 	ListWorktrees() ([]Worktree, error)
+	ListWorktreesForTUI() ([]Worktree, error)
 	PruneWorktree(branchName string) error
 	PruneAllMerged() error
 }
@@ -263,10 +265,13 @@ func extractRepoNameFromURL(url string) string {
 }
 
 type Worktree struct {
-	Path     string
-	Branch   string
-	Commit   string
-	PRStatus string
+	Path      string
+	Branch    string
+	Commit    string
+	PRStatus  string
+	UpdatedAt time.Time
+	Merged    bool
+	Prunable  bool
 }
 
 func (wm *WorktreeManager) ListWorktrees() ([]Worktree, error) {
@@ -282,6 +287,37 @@ func (wm *WorktreeManager) ListWorktrees() ([]Worktree, error) {
 
 	for i := range worktrees {
 		worktrees[i].PRStatus = wm.githubClient.GetPRStatus(worktrees[i].Branch)
+	}
+
+	return worktrees, nil
+}
+
+func (wm *WorktreeManager) ListWorktreesForTUI() ([]Worktree, error) {
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = wm.repoRoot
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list worktrees: %w", err)
+	}
+
+	worktrees := parseWorktreeList(string(output))
+	commitTimes := wm.branchCommitTimes()
+	mergedBranches := wm.mergedBranches()
+
+	for i := range worktrees {
+		if updatedAt, ok := commitTimes[worktrees[i].Branch]; ok {
+			worktrees[i].UpdatedAt = updatedAt
+		}
+		if info, err := os.Stat(worktrees[i].Path); err == nil {
+			if info.ModTime().After(worktrees[i].UpdatedAt) {
+				worktrees[i].UpdatedAt = info.ModTime()
+			}
+		}
+		worktrees[i].Merged = mergedBranches[worktrees[i].Branch]
+		if worktrees[i].Merged {
+			worktrees[i].PRStatus = "Merged"
+		}
 	}
 
 	return worktrees, nil
@@ -316,6 +352,8 @@ func parseWorktreeList(output string) []Worktree {
 			}
 		case "HEAD":
 			current.Commit = value
+		case "prunable":
+			current.Prunable = true
 		}
 	}
 
@@ -324,6 +362,126 @@ func parseWorktreeList(output string) []Worktree {
 	}
 
 	return worktrees
+}
+
+func (wm *WorktreeManager) branchCommitTimes() map[string]time.Time {
+	result := make(map[string]time.Time)
+	cmd := exec.Command("git", "for-each-ref", "refs/heads", "--format=%(refname:short)%00%(committerdate:iso-strict)")
+	cmd.Dir = wm.repoRoot
+	output, err := cmd.Output()
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x00", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if ts, err := time.Parse(time.RFC3339, parts[1]); err == nil {
+			result[parts[0]] = ts
+		}
+	}
+	return result
+}
+
+func (wm *WorktreeManager) mergedBranches() map[string]bool {
+	result := make(map[string]bool)
+	baseBranch := wm.getCachedBaseBranch()
+	if baseBranch == "" {
+		return result
+	}
+	remoteBranches := wm.remoteBranches()
+	pushedBranches := wm.pushedBranchEvidence()
+	cmd := exec.Command("git", "branch", "--merged", baseBranch, "--format=%(refname:short)")
+	cmd.Dir = wm.repoRoot
+	output, err := cmd.Output()
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		branch := strings.TrimSpace(strings.TrimPrefix(line, "*"))
+		if branch != "" && (remoteBranches[branch] || pushedBranches[branch]) {
+			result[branch] = true
+		}
+	}
+	return result
+}
+
+func (wm *WorktreeManager) remoteBranches() map[string]bool {
+	result := make(map[string]bool)
+	cmd := exec.Command("git", "for-each-ref", "refs/remotes/origin", "--format=%(refname:short)")
+	cmd.Dir = wm.repoRoot
+	output, err := cmd.Output()
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		remoteBranch := strings.TrimSpace(line)
+		if strings.HasPrefix(remoteBranch, "origin/") {
+			branch := strings.TrimPrefix(remoteBranch, "origin/")
+			if branch != "HEAD" && branch != "" {
+				result[branch] = true
+			}
+		}
+	}
+	return result
+}
+
+func (wm *WorktreeManager) pushedBranchEvidence() map[string]bool {
+	result := make(map[string]bool)
+	cmd := exec.Command("git", "reflog", "--all", "--oneline")
+	cmd.Dir = wm.repoRoot
+	output, err := cmd.Output()
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		for _, field := range strings.Fields(line) {
+			if strings.HasPrefix(field, "origin/") {
+				branch := strings.Trim(strings.TrimPrefix(field, "origin/"), ":,;)")
+				if branch != "" && branch != "HEAD" {
+					result[branch] = true
+				}
+			}
+		}
+	}
+	return result
+}
+
+func (wm *WorktreeManager) getCachedBaseBranch() string {
+	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Dir = wm.repoRoot
+	if output, err := cmd.Output(); err == nil {
+		ref := strings.TrimSpace(string(output))
+		const prefix = "refs/remotes/origin/"
+		if strings.HasPrefix(ref, prefix) {
+			branch := strings.TrimPrefix(ref, prefix)
+			if wm.branchExists("refs/remotes/origin/" + branch) {
+				return "origin/" + branch
+			}
+			if wm.branchExists("refs/heads/" + branch) {
+				return branch
+			}
+		}
+	}
+
+	for _, ref := range []struct {
+		verify string
+		name   string
+	}{
+		{"refs/heads/main", "main"},
+		{"refs/heads/master", "master"},
+		{"refs/remotes/origin/main", "origin/main"},
+		{"refs/remotes/origin/master", "origin/master"},
+	} {
+		if wm.branchExists(ref.verify) {
+			return ref.name
+		}
+	}
+	return ""
 }
 
 func (wm *WorktreeManager) getBaseBranch() (string, error) {

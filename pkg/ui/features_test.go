@@ -25,8 +25,11 @@ type TUITestContext struct {
 	fakeClient          *linear.FakeLinearClient
 	fakeWorktreeManager *testWorktreeManager
 	defaultWorktreeCmd  string
+	resumeWorktreeCmd   string
 	postCreateRuns      []string
+	postResumeRuns      []string
 	postCreateRan       bool
+	postResumeRan       bool
 	pendingMsgs         chan tea.Msg
 	t                   *testing.T
 	terminalWidth       int
@@ -39,8 +42,11 @@ func NewTUITestContext(t *testing.T) *TUITestContext {
 		fakeClient:          linear.NewFakeLinearClient(),
 		fakeWorktreeManager: &testWorktreeManager{},
 		defaultWorktreeCmd:  "",
+		resumeWorktreeCmd:   "",
 		postCreateRuns:      nil,
+		postResumeRuns:      nil,
 		postCreateRan:       false,
+		postResumeRan:       false,
 		pendingMsgs:         make(chan tea.Msg, 64),
 		t:                   t,
 		terminalWidth:       80, // Default width
@@ -53,6 +59,7 @@ type testWorktreeManager struct {
 	lastCreatedWorktree string
 	lastCreatedBranch   string
 	gitCommands         []string
+	worktrees           []git.Worktree
 	delayCreate         bool
 	createUnblock       chan struct{}
 }
@@ -84,7 +91,11 @@ func (m *testWorktreeManager) CreateBranch(branchName string) error {
 }
 
 func (m *testWorktreeManager) ListWorktrees() ([]git.Worktree, error) {
-	return nil, nil
+	return m.worktrees, nil
+}
+
+func (m *testWorktreeManager) ListWorktreesForTUI() ([]git.Worktree, error) {
+	return m.worktrees, nil
 }
 
 func (m *testWorktreeManager) PruneWorktree(branchName string) error {
@@ -197,10 +208,14 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 		// Default status if not provided in table
 		var status linear.State
 		if len(row.Cells) > 3 && row.Cells[3].Value != "" {
+			stateType := strings.ToLower(strings.ReplaceAll(row.Cells[3].Value, " ", "_"))
+			if stateType == "done" {
+				stateType = "completed"
+			}
 			status = linear.State{
 				ID:   identifier + "-state",
 				Name: row.Cells[3].Value,
-				Type: strings.ToLower(strings.ReplaceAll(row.Cells[3].Value, " ", "_")),
+				Type: stateType,
 			}
 		} else {
 			// Default status for tests
@@ -209,6 +224,11 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 				Name: "Todo",
 				Type: "todo",
 			}
+		}
+
+		var updatedAt time.Time
+		if len(row.Cells) > 4 && row.Cells[4].Value != "" {
+			updatedAt, _ = time.Parse(time.RFC3339, strings.TrimSpace(row.Cells[4].Value))
 		}
 
 		// Create issue with identifier as ID for simplicity in tests
@@ -221,12 +241,42 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 			Expanded:    false,
 			Depth:       0,                // Will be set by UI based on hierarchy
 			Children:    []linear.Issue{}, // Not used in fake client
+			UpdatedAt:   updatedAt,
 		}
 
 		// Add to fake client (it handles parent-child relationships)
 		tc.fakeClient.AddIssue(issue, parentID)
 	}
 
+	return nil
+}
+
+func (tc *TUITestContext) theFollowingWorktreesExist(worktreeTable *godog.Table) error {
+	var worktrees []git.Worktree
+	for i, row := range worktreeTable.Rows {
+		if i == 0 {
+			continue
+		}
+		branch := strings.TrimSpace(row.Cells[0].Value)
+		path := strings.TrimSpace(row.Cells[1].Value)
+		updatedAt, _ := time.Parse(time.RFC3339, strings.TrimSpace(row.Cells[2].Value))
+		merged := false
+		if len(row.Cells) > 3 {
+			merged = strings.EqualFold(strings.TrimSpace(row.Cells[3].Value), "true")
+		}
+		prStatus := ""
+		if merged {
+			prStatus = "Merged"
+		}
+		worktrees = append(worktrees, git.Worktree{
+			Branch:    branch,
+			Path:      path,
+			UpdatedAt: updatedAt,
+			Merged:    merged,
+			PRStatus:  prStatus,
+		})
+	}
+	tc.fakeWorktreeManager.worktrees = worktrees
 	return nil
 }
 
@@ -238,6 +288,7 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 	var err error
 	tc.model, err = NewTUIWithDependenciesAndConfig(tc.fakeWorktreeManager, tc.fakeClient, &config.Config{
 		DefaultCommand: tc.defaultWorktreeCmd,
+		ResumeCommand:  tc.resumeWorktreeCmd,
 	})
 	if err != nil {
 		return err
@@ -273,6 +324,17 @@ func (tc *TUITestContext) executeInitialization() {
 		}
 
 		// Update the model with the loading result
+		updatedModel, _ := tc.model.Update(msg)
+		tc.model = updatedModel.(model)
+	}
+	if tc.model.WorktreeManager != nil && tc.model.WorktreesLoading {
+		worktrees, err := tc.model.WorktreeManager.ListWorktreesForTUI()
+		var msg tea.Msg
+		if err != nil {
+			msg = worktreesErrorMsg{err}
+		} else {
+			msg = worktreesLoadedMsg{worktrees}
+		}
 		updatedModel, _ := tc.model.Update(msg)
 		tc.model = updatedModel.(model)
 	}
@@ -315,6 +377,8 @@ func (tc *TUITestContext) iPress(key string) error {
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
 	case "z":
 		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}
+	case "a":
+		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
 	default:
 		return fmt.Errorf("unknown key: %s", key)
 	}
@@ -421,6 +485,7 @@ func (tc *TUITestContext) processMsg(msg tea.Msg) {
 	updatedModel, _ := tc.model.Update(msg)
 	tc.model = updatedModel.(model)
 	tc.maybeRunPostCreateCommand()
+	tc.maybeRunPostResumeCommand()
 }
 
 func (tc *TUITestContext) maybeRunPostCreateCommand() {
@@ -444,10 +509,35 @@ func (tc *TUITestContext) maybeRunPostCreateCommand() {
 	tc.postCreateRan = true
 }
 
+func (tc *TUITestContext) maybeRunPostResumeCommand() {
+	if tc.postResumeRan {
+		return
+	}
+	if !tc.model.Done || !tc.model.Success || !tc.model.Resumed || tc.model.WorktreePath == "" {
+		return
+	}
+
+	cfg := &config.Config{
+		DefaultCommand: tc.defaultWorktreeCmd,
+		ResumeCommand:  tc.resumeWorktreeCmd,
+	}
+	resolved := config.ResolveResumeCommand(cfg.GetResumeCommand(), cfg.GetDefaultCommand(), config.ResumeContext{
+		WorktreePath: tc.model.WorktreePath,
+		BranchName:   tc.model.ResumeBranch,
+		RepoName:     "sprout",
+	})
+	if len(resolved) > 0 {
+		tc.postResumeRuns = append(tc.postResumeRuns, fmt.Sprintf("cd %s && %s", tc.model.WorktreePath, formatCommandArgs(resolved)))
+	}
+	tc.postResumeRan = true
+}
+
 func formatCommandArgs(args []string) string {
 	parts := make([]string, len(args))
 	for i, arg := range args {
-		if arg == "" || strings.ContainsAny(arg, " \t\n\"'") {
+		if strings.Contains(arg, "\n") {
+			parts[i] = `"` + arg + `"`
+		} else if arg == "" || strings.ContainsAny(arg, " \t\"'") {
 			parts[i] = strconv.Quote(arg)
 		} else {
 			parts[i] = arg
@@ -658,9 +748,10 @@ func (tc *TUITestContext) parseExpectedCommands(commandsTable *godog.Table) ([]s
 }
 
 func (tc *TUITestContext) allRecordedCommands() []string {
-	commands := make([]string, 0, len(tc.fakeWorktreeManager.gitCommands)+len(tc.postCreateRuns))
+	commands := make([]string, 0, len(tc.fakeWorktreeManager.gitCommands)+len(tc.postCreateRuns)+len(tc.postResumeRuns))
 	commands = append(commands, tc.fakeWorktreeManager.gitCommands...)
 	commands = append(commands, tc.postCreateRuns...)
+	commands = append(commands, tc.postResumeRuns...)
 	return commands
 }
 
@@ -690,7 +781,113 @@ func (tc *TUITestContext) theFollowingCommandsShouldBeRun(commandsTable *godog.T
 }
 
 func (tc *TUITestContext) theDefaultWorktreeCommandIs(command string) error {
-	tc.defaultWorktreeCmd = strings.TrimSpace(command)
+	tc.defaultWorktreeCmd = strings.ReplaceAll(strings.TrimSpace(command), `\`, "")
+	return nil
+}
+
+func (tc *TUITestContext) aConfigWith(configTable *godog.Table) error {
+	for i, row := range configTable.Rows {
+		if i == 0 {
+			continue
+		}
+		key := strings.TrimSpace(row.Cells[0].Value)
+		value := strings.TrimSpace(row.Cells[1].Value)
+		switch key {
+		case "defaultCommand", "default_command":
+			tc.defaultWorktreeCmd = value
+		case "resumeCommand", "resume_command":
+			tc.resumeWorktreeCmd = value
+		}
+	}
+	return nil
+}
+
+func (tc *TUITestContext) theTUIShouldResumeWorktree(path string) error {
+	tc.drainWithTimeout(20 * time.Millisecond)
+	if !tc.model.Resumed {
+		return fmt.Errorf("expected TUI to resume a worktree")
+	}
+	if tc.model.WorktreePath != path {
+		return fmt.Errorf("expected resumed path %q, got %q", path, tc.model.WorktreePath)
+	}
+	return nil
+}
+
+func (tc *TUITestContext) noNewWorktreeShouldBeCreated() error {
+	if tc.fakeWorktreeManager.lastCreatedWorktree != "" {
+		return fmt.Errorf("expected no new worktree, got %q", tc.fakeWorktreeManager.lastCreatedWorktree)
+	}
+	return nil
+}
+
+func (tc *TUITestContext) aWorktreeShouldBeCreatedForBranch(branch string) error {
+	tc.drainWithTimeout(20 * time.Millisecond)
+	if tc.fakeWorktreeManager.lastCreatedWorktree != branch {
+		return fmt.Errorf("expected created worktree %q, got %q", branch, tc.fakeWorktreeManager.lastCreatedWorktree)
+	}
+	return nil
+}
+
+func (tc *TUITestContext) theUIShouldNotDisplay(text string) error {
+	tc.drainWithTimeout(20 * time.Millisecond)
+	actual := StripANSI(tc.model.View())
+	if strings.Contains(actual, text) {
+		return fmt.Errorf("expected UI not to contain %q\nActual UI:\n%s", text, actual)
+	}
+	return nil
+}
+
+func (tc *TUITestContext) theUIShouldDisplayText(text string) error {
+	return tc.theUIShouldContain(text)
+}
+
+func (tc *TUITestContext) activeWorkQueueRowsExist(count int) error {
+	var worktrees []git.Worktree
+	baseTime := time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < count; i++ {
+		branch := fmt.Sprintf("feature-%02d", i+1)
+		worktrees = append(worktrees, git.Worktree{
+			Branch:    branch,
+			Path:      "/mock/worktrees/" + branch,
+			UpdatedAt: baseTime.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	tc.fakeWorktreeManager.worktrees = worktrees
+	return nil
+}
+
+func (tc *TUITestContext) theUIShouldShowWorkQueueRows(count int) error {
+	tc.drainWithTimeout(20 * time.Millisecond)
+	actual := StripANSI(tc.model.View())
+	rows := 0
+	for _, line := range strings.Split(actual, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "├──") || strings.HasPrefix(line, "└──") {
+			rows++
+		}
+	}
+	if rows != count {
+		return fmt.Errorf("expected %d work queue rows, got %d\nActual UI:\n%s", count, rows, actual)
+	}
+	return nil
+}
+
+func (tc *TUITestContext) postResumeCommandShouldBe(command string) error {
+	tc.drainWithTimeout(20 * time.Millisecond)
+	if len(tc.postResumeRuns) != 1 {
+		return fmt.Errorf("expected one post-resume command, got %d: %v", len(tc.postResumeRuns), tc.postResumeRuns)
+	}
+	if tc.postResumeRuns[0] != command {
+		return fmt.Errorf("expected post-resume command %q, got %q", command, tc.postResumeRuns[0])
+	}
+	return nil
+}
+
+func (tc *TUITestContext) noPostResumeCommandShouldRun() error {
+	tc.drainWithTimeout(20 * time.Millisecond)
+	if len(tc.postResumeRuns) != 0 {
+		return fmt.Errorf("expected no post-resume command, got %v", tc.postResumeRuns)
+	}
 	return nil
 }
 
@@ -713,8 +910,11 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 		tc.fakeClient = linear.NewFakeLinearClient()
 		tc.fakeWorktreeManager = &testWorktreeManager{}
 		tc.defaultWorktreeCmd = ""
+		tc.resumeWorktreeCmd = ""
 		tc.postCreateRuns = nil
+		tc.postResumeRuns = nil
 		tc.postCreateRan = false
+		tc.postResumeRan = false
 		tc.pendingMsgs = make(chan tea.Msg, 64)
 		tc.t = t              // Ensure t is set for each scenario
 		tc.terminalWidth = 80 // Reset to default
@@ -724,15 +924,32 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 
 	// Step definitions
 	ctx.Step(`^the following Linear issues exist:$`, tc.theFollowingLinearIssuesExist)
+	ctx.Step(`^the following worktrees exist:$`, tc.theFollowingWorktreesExist)
+	ctx.Step(`^a config with:$`, tc.aConfigWith)
 	ctx.Step(`^my terminal width is (\d+) characters$`, tc.myTerminalWidthIsCharacters)
 	ctx.Step(`^I start the Sprout TUI$`, tc.iStartTheSproutTUI)
 	ctx.Step(`^I press "([^"]*)"$`, tc.iPress)
 	ctx.Step(`^I type "([^"]*)"$`, tc.iType)
 	ctx.Step(`^I type the following text:$`, tc.iTypeTheFollowingText)
 	ctx.Step(`^the UI should display:$`, tc.theUIShouldDisplay)
+	ctx.Step(`^the UI should display "([^"]*)"$`, tc.theUIShouldDisplayText)
+	ctx.Step(`^the UI should not display "([^"]*)"$`, tc.theUIShouldNotDisplay)
 	ctx.Step(`^the UI should contain "([^"]*)"$`, tc.theUIShouldContain)
 	ctx.Step(`^the following commands should be run:$`, tc.theFollowingCommandsShouldBeRun)
+	ctx.Step(`^the TUI should resume worktree "([^"]*)"$`, tc.theTUIShouldResumeWorktree)
+	ctx.Step(`^no new worktree should be created$`, tc.noNewWorktreeShouldBeCreated)
+	ctx.Step(`^a worktree should be created for branch "([^"]*)"$`, tc.aWorktreeShouldBeCreatedForBranch)
+	ctx.Step(`^(\d+) active work queue rows exist$`, tc.activeWorkQueueRowsExist)
+	ctx.Step(`^the UI should show (\d+) work queue rows$`, tc.theUIShouldShowWorkQueueRows)
+	ctx.Step(`^the post-resume command should be "([^"]*)"$`, tc.postResumeCommandShouldBe)
+	ctx.Step(`^no post-resume command should run$`, tc.noPostResumeCommandShouldRun)
 	ctx.Step(`^the default worktree command is "([^"]*)"$`, tc.theDefaultWorktreeCommandIs)
+	ctx.Step(`^the default worktree command is "([^"]*)"\$PROMPT\\"([^"]*)"$`, func(prefix, suffix string) error {
+		return tc.theDefaultWorktreeCommandIs(prefix + "$PROMPT" + suffix)
+	})
+	ctx.Step(`^the default worktree command is "([^"]*)"\$PROMPT\\"([^"]*)"\$PROMPT\\"([^"]*)"$`, func(prefix, middle, suffix string) error {
+		return tc.theDefaultWorktreeCommandIs(prefix + "$PROMPT" + middle + "$PROMPT" + suffix)
+	})
 	ctx.Step(`^worktree creation is delayed$`, tc.worktreeCreationIsDelayed)
 	ctx.Step(`^worktree creation completes$`, tc.worktreeCreationCompletes)
 	ctx.Step(`^the UI should display titles truncated to fit the available width$`, tc.theUIShouldDisplayTitlesTruncatedToFitTheAvailableWidth)
@@ -745,8 +962,18 @@ func TestFeatures(t *testing.T) {
 			InitializeScenario(ctx, t)
 		},
 		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features"},
+			Format: "pretty",
+			Paths: []string{
+				"../../features/async_prompt.feature",
+				"../../features/duplicate_handling.feature",
+				"../../features/expansion.feature",
+				"../../features/interaction.feature",
+				"../../features/navigation.feature",
+				"../../features/resume_command.feature",
+				"../../features/resume_work_queue.feature",
+				"../../features/search.feature",
+				"../../features/window_width.feature",
+			},
 			TestingT: t,
 		},
 	}

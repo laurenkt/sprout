@@ -278,6 +278,76 @@ func TestCreateWorktreeFromBase(t *testing.T) {
 	}
 }
 
+func TestListWorktreesForTUIDoesNotMarkFreshWorktreeAsMerged(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "sprout-fresh-worktree-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer func() {
+		os.RemoveAll(tempDir)
+		os.RemoveAll(filepath.Join(filepath.Dir(tempDir), "fresh-worktree"))
+	}()
+
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to init git repo: %v", err)
+	}
+
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git email: %v", err)
+	}
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git name: %v", err)
+	}
+
+	testFile := filepath.Join(tempDir, "README.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to add files: %v", err)
+	}
+
+	cmd = exec.Command("git", "commit", "-m", "Initial commit")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	worktreePath := filepath.Join(filepath.Dir(tempDir), "fresh-worktree")
+	cmd = exec.Command("git", "worktree", "add", worktreePath, "-b", "fresh-worktree", "master")
+	cmd.Dir = tempDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to create fresh worktree: %v\nOutput: %s", err, string(output))
+	}
+
+	wm := &WorktreeManager{repoRoot: tempDir}
+	worktrees, err := wm.ListWorktreesForTUI()
+	if err != nil {
+		t.Fatalf("ListWorktreesForTUI returned error: %v", err)
+	}
+
+	for _, wt := range worktrees {
+		if wt.Branch == "fresh-worktree" {
+			if wt.Merged {
+				t.Fatalf("fresh worktree branch should not be treated as merged")
+			}
+			return
+		}
+	}
+
+	t.Fatalf("fresh worktree was not returned in TUI worktrees: %#v", worktrees)
+}
+
 func TestCreateBranch(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "sprout-branch-*")
 	if err != nil {

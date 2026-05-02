@@ -162,6 +162,12 @@ func HandleDoctorCommand(deps *Dependencies) error {
 	}
 	fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Default Command"), normalStyle.Render(defaultCmd))
 
+	resumeCmd := cfg.ResumeCommand
+	if resumeCmd == "" {
+		resumeCmd = "not configured"
+	}
+	fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Resume Command"), normalStyle.Render(resumeCmd))
+
 	if cfg.GetLinearAPIKey() != "" {
 		fmt.Fprintf(deps.Output, "  %s: %s\n", accentStyle.Render("Linear API Key"), normalStyle.Render("configured"))
 	} else {
@@ -277,7 +283,7 @@ func Run(args []string) int {
 		fmt.Printf("Error: Failed to initialize dependencies: %v\n", err)
 		return 1
 	}
-	
+
 	return RunWithDependencies(args, deps)
 }
 
@@ -347,23 +353,23 @@ func handleCreateCommandWithDeps(args []string, deps *Dependencies) error {
 	if len(args) == 0 {
 		return fmt.Errorf("branch name is required. Usage: sprout create <branch-name> [command...]")
 	}
-	
+
 	branchName := args[0]
-	
+
 	worktreePath, err := deps.WorktreeManager.CreateWorktree(branchName)
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Fprintf(deps.ErrorOutput, "Worktree ready at: %s\n", worktreePath)
-	
+
 	// If no command provided, check for default command
 	if len(args) == 1 {
 		cfg, err := deps.ConfigLoader.GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		
+
 		defaultCmd := cfg.GetDefaultCommand()
 		if len(defaultCmd) > 0 {
 			// Execute the default command in the worktree directory
@@ -372,7 +378,7 @@ func handleCreateCommandWithDeps(args []string, deps *Dependencies) error {
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = deps.Output
 			cmd.Stderr = deps.ErrorOutput
-			
+
 			if err := cmd.Run(); err != nil {
 				if exitError, ok := err.(*exec.ExitError); ok {
 					if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
@@ -385,22 +391,22 @@ func handleCreateCommandWithDeps(args []string, deps *Dependencies) error {
 			fmt.Fprintf(deps.ErrorOutput, "\nWorktree directory: %s\n", worktreePath)
 			return nil
 		}
-		
+
 		// No default command, output path for shell evaluation
 		fmt.Fprint(deps.Output, worktreePath)
 		return nil
 	}
-	
+
 	// Execute the provided command in the worktree directory
 	command := args[1]
 	commandArgs := args[2:]
-	
+
 	cmd := exec.Command(command, commandArgs...)
 	cmd.Dir = worktreePath
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = deps.Output
 	cmd.Stderr = deps.ErrorOutput
-	
+
 	if err := cmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
@@ -410,7 +416,7 @@ func handleCreateCommandWithDeps(args []string, deps *Dependencies) error {
 		}
 		return fmt.Errorf("command failed: %w", err)
 	}
-	
+
 	fmt.Fprintf(deps.ErrorOutput, "\nWorktree directory: %s\n", worktreePath)
 	return nil
 }
@@ -420,7 +426,7 @@ func handlePruneCommandWithDeps(args []string, deps *Dependencies) error {
 		// Prune all merged branches
 		return deps.WorktreeManager.PruneAllMerged()
 	}
-	
+
 	branchName := args[0]
 	return deps.WorktreeManager.PruneWorktree(branchName)
 }

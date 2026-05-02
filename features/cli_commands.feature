@@ -90,6 +90,7 @@ Feature: Sprout CLI Commands
       🌱 Sprout Configuration
 
         Default Command: code .
+        Resume Command: not configured
         Linear API Key: not configured
         Config Path: /Users/laurenkt/.sprout.json5
         Config File: exists
@@ -111,6 +112,7 @@ Feature: Sprout CLI Commands
       🌱 Sprout Configuration
 
         Default Command: code .
+        Resume Command: not configured
         Linear API Key: configured
         Config Path: /Users/laurenkt/.sprout.json5
         Config File: exists

@@ -15,6 +15,7 @@ const PromptPlaceholder = "$PROMPT"
 
 type Config struct {
 	DefaultCommand    string              `json:"defaultCommand,omitempty"`
+	ResumeCommand     string              `json:"resumeCommand,omitempty"`
 	LinearAPIKey      string              `json:"linearApiKey,omitempty"`
 	SparseCheckout    map[string][]string `json:"sparseCheckout,omitempty"`
 	WorktreeBasePath  string              `json:"worktreeBasePath,omitempty"`
@@ -45,6 +46,7 @@ func (fl *FileLoader) GetConfig() (*Config, error) {
 func DefaultConfig() *Config {
 	return &Config{
 		DefaultCommand:    "",
+		ResumeCommand:     "",
 		LinearAPIKey:      "",
 		SparseCheckout:    make(map[string][]string),
 		WorktreeBasePath:  "",
@@ -83,6 +85,7 @@ func Load() (*Config, error) {
 	// Check for unknown keys
 	validKeys := map[string]bool{
 		"defaultCommand":    true,
+		"resumeCommand":     true,
 		"linearApiKey":      true,
 		"sparseCheckout":    true,
 		"worktreeBasePath":  true,
@@ -97,7 +100,7 @@ func Load() (*Config, error) {
 	}
 
 	if len(unknownKeys) > 0 {
-		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - linearApiKey: string (API key for Linear integration)\n  - sparseCheckout: object (map of repository paths to directory arrays)\n  - worktreeBasePath: string (base worktree directory with optional variables)\n  - worktreeBasePaths: object (deprecated: map of repository names or paths to base worktree directories)", unknownKeys)
+		return nil, fmt.Errorf("unknown config keys found: %v\n\nValid config keys are:\n  - defaultCommand: string (command to run by default in new worktrees)\n  - resumeCommand: string (command to run when resuming existing worktrees)\n  - linearApiKey: string (API key for Linear integration)\n  - sparseCheckout: object (map of repository paths to directory arrays)\n  - worktreeBasePath: string (base worktree directory with optional variables)\n  - worktreeBasePaths: object (deprecated: map of repository names or paths to base worktree directories)", unknownKeys)
 	}
 
 	// Now parse into the actual config struct
@@ -140,15 +143,21 @@ func getConfigPath() (string, error) {
 }
 
 func (c *Config) GetDefaultCommand() []string {
-	if c.DefaultCommand == "" {
+	return parseConfiguredCommand(c.DefaultCommand)
+}
+
+func (c *Config) GetResumeCommand() []string {
+	return parseConfiguredCommand(c.ResumeCommand)
+}
+
+func parseConfiguredCommand(command string) []string {
+	if strings.TrimSpace(command) == "" {
 		return nil
 	}
-
-	parts := parseCommandLine(c.DefaultCommand)
+	parts := parseCommandLine(command)
 	if len(parts) == 0 {
 		return nil
 	}
-
 	return parts
 }
 
@@ -173,6 +182,31 @@ func ResolveDefaultCommand(defaultCmdArgs []string, prompt string) []string {
 		resolved[i] = strings.ReplaceAll(arg, PromptPlaceholder, prompt)
 	}
 
+	return resolved
+}
+
+type ResumeContext struct {
+	WorktreePath string
+	BranchName   string
+	RepoName     string
+}
+
+func ResolveResumeCommand(resumeCmdArgs, defaultCmdArgs []string, ctx ResumeContext) []string {
+	args := resumeCmdArgs
+	if len(args) == 0 && !NeedsPromptCapture(defaultCmdArgs) {
+		args = defaultCmdArgs
+	}
+	if len(args) == 0 {
+		return nil
+	}
+
+	resolved := make([]string, len(args))
+	for i, arg := range args {
+		arg = strings.ReplaceAll(arg, "$WORKTREE_PATH", ctx.WorktreePath)
+		arg = strings.ReplaceAll(arg, "$BRANCH_NAME", ctx.BranchName)
+		arg = strings.ReplaceAll(arg, "$REPO_NAME", ctx.RepoName)
+		resolved[i] = arg
+	}
 	return resolved
 }
 
