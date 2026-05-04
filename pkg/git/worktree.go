@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"sprout/pkg/config"
@@ -320,24 +321,97 @@ func (wm *WorktreeManager) ListWorktreesForTUIWithProgress(progress func(string)
 				worktrees[i].UpdatedAt = info.ModTime()
 			}
 		}
+	}
 
-		if !shouldCheckPRStatusForTUI(worktrees[i]) || wm.githubClient == nil {
-			continue
-		}
-
-		command := github.PRStatusCommand(worktrees[i].Branch)
-		reportProgress(progress, command)
-		prStatus, err := wm.githubClient.GetPRStatusFromGH(worktrees[i].Branch)
-		if err != nil {
-			return nil, err
-		}
-		worktrees[i].PRStatus = prStatus
-		if prStatus == "Merged" {
-			worktrees[i].Merged = true
-		}
+	if err := wm.applyTUIWorktreePRStatuses(worktrees, progress); err != nil {
+		return nil, err
 	}
 
 	return worktrees, nil
+}
+
+const maxConcurrentTUIStatusChecks = 6
+
+type prStatusJob struct {
+	index int
+}
+
+type prStatusResult struct {
+	index  int
+	status string
+	err    error
+}
+
+func (wm *WorktreeManager) applyTUIWorktreePRStatuses(worktrees []Worktree, progress func(string)) error {
+	if wm.githubClient == nil {
+		return nil
+	}
+
+	var jobs []prStatusJob
+	for i := range worktrees {
+		if !shouldCheckPRStatusForTUI(worktrees[i]) {
+			continue
+		}
+		if wm.githubClient.CachedMergedPRStatus(worktrees[i].Branch, worktrees[i].Commit) {
+			worktrees[i].PRStatus = "Merged"
+			worktrees[i].Merged = true
+			continue
+		}
+		jobs = append(jobs, prStatusJob{index: i})
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	workerCount := maxConcurrentTUIStatusChecks
+	if len(jobs) < workerCount {
+		workerCount = len(jobs)
+	}
+
+	jobCh := make(chan prStatusJob)
+	resultCh := make(chan prStatusResult, len(jobs))
+	var wg sync.WaitGroup
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				wt := worktrees[job.index]
+				command := github.PRStatusCommand(wt.Branch)
+				reportProgress(progress, command)
+				status, err := wm.githubClient.GetPRStatusFromGH(wt.Branch)
+				resultCh <- prStatusResult{index: job.index, status: status, err: err}
+			}
+		}()
+	}
+
+	go func() {
+		for _, job := range jobs {
+			jobCh <- job
+		}
+		close(jobCh)
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	var firstErr error
+	for result := range resultCh {
+		if result.err != nil && firstErr == nil {
+			firstErr = result.err
+			continue
+		}
+		if result.err != nil {
+			continue
+		}
+		worktrees[result.index].PRStatus = result.status
+		if result.status == "Merged" {
+			worktrees[result.index].Merged = true
+			wm.githubClient.RememberMergedPRStatus(worktrees[result.index].Branch, worktrees[result.index].Commit)
+		}
+	}
+
+	return firstErr
 }
 
 func reportProgress(progress func(string), status string) {

@@ -66,6 +66,7 @@ type testWorktreeManager struct {
 	createUnblock       chan struct{}
 	pauseStatus         string
 	failPRBranch        string
+	cachedMerged        map[string]bool
 }
 
 func (m *testWorktreeManager) CreateWorktree(branchName string) (string, error) {
@@ -118,6 +119,17 @@ func (m *testWorktreeManager) ListWorktreesForTUIWithProgress(progress func(stri
 			progress(command)
 		}
 		return nil, fmt.Errorf("%s: failed", command)
+	}
+	for i := range m.worktrees {
+		if m.cachedMerged[m.worktrees[i].Branch] {
+			m.worktrees[i].Merged = true
+			m.worktrees[i].PRStatus = "Merged"
+			continue
+		}
+		command := fmt.Sprintf("gh pr list --head %s --state all --json state --limit 1", m.worktrees[i].Branch)
+		if progress != nil {
+			progress(command)
+		}
 	}
 	return m.worktrees, nil
 }
@@ -953,6 +965,19 @@ func (tc *TUITestContext) githubPRStatusLookupFailsForBranch(branch string) erro
 	return nil
 }
 
+func (tc *TUITestContext) worktreeIsCachedAsMergedAtItsCurrentCommit(branch string) error {
+	if tc.fakeWorktreeManager.cachedMerged == nil {
+		tc.fakeWorktreeManager.cachedMerged = make(map[string]bool)
+	}
+	tc.fakeWorktreeManager.cachedMerged[branch] = true
+	tc.fakeWorktreeManager.worktrees = []git.Worktree{{
+		Branch: branch,
+		Path:   "/mock/worktrees/" + branch,
+		Commit: "cached-commit",
+	}}
+	return nil
+}
+
 func (tc *TUITestContext) postResumeCommandShouldBe(command string) error {
 	tc.drainWithTimeout(20 * time.Millisecond)
 	if len(tc.postResumeRuns) != 1 {
@@ -989,7 +1014,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	// Setup a test context for each scenario
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 		tc.fakeLinear = lineartest.NewServer(t)
-		tc.fakeWorktreeManager = &testWorktreeManager{}
+		tc.fakeWorktreeManager = &testWorktreeManager{cachedMerged: make(map[string]bool)}
 		tc.defaultWorktreeCmd = ""
 		tc.resumeWorktreeCmd = ""
 		tc.postCreateRuns = nil
@@ -1030,6 +1055,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Step(`^worktree loading has completed$`, tc.worktreeLoadingHasCompleted)
 	ctx.Step(`^Linear issue loading completes$`, tc.linearIssueLoadingCompletes)
 	ctx.Step(`^GitHub PR status lookup fails for branch "([^"]*)"$`, tc.githubPRStatusLookupFailsForBranch)
+	ctx.Step(`^worktree "([^"]*)" is cached as merged at its current commit$`, tc.worktreeIsCachedAsMergedAtItsCurrentCommit)
 	ctx.Step(`^the post-resume command should be "([^"]*)"$`, tc.postResumeCommandShouldBe)
 	ctx.Step(`^no post-resume command should run$`, tc.noPostResumeCommandShouldRun)
 	ctx.Step(`^the default worktree command is "([^"]*)"$`, tc.theDefaultWorktreeCommandIs)

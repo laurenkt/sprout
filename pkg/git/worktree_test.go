@@ -6,7 +6,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"sprout/pkg/config"
 	"sprout/pkg/github"
@@ -471,17 +473,92 @@ func TestListWorktreesForTUIGitHubFailureIncludesExactCommand(t *testing.T) {
 	}
 }
 
+func TestListWorktreesForTUIChecksGitHubStatusesInParallel(t *testing.T) {
+	tempDir, cleanup := setupRepoWithFeatureWorktrees(t, "feature-one", "feature-two")
+	defer cleanup()
+
+	var active int32
+	var maxActive int32
+	wm := &WorktreeManager{
+		repoRoot: tempDir,
+		githubClient: github.NewClientWithRunnerAndCachePath(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+			current := atomic.AddInt32(&active, 1)
+			for {
+				max := atomic.LoadInt32(&maxActive)
+				if current <= max || atomic.CompareAndSwapInt32(&maxActive, max, current) {
+					break
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+			atomic.AddInt32(&active, -1)
+			return []byte(`[{"state":"OPEN"}]`), nil
+		}, filepath.Join(t.TempDir(), "cache.json")),
+	}
+
+	if _, err := wm.ListWorktreesForTUIWithProgress(nil); err != nil {
+		t.Fatalf("ListWorktreesForTUIWithProgress returned error: %v", err)
+	}
+
+	if atomic.LoadInt32(&maxActive) < 2 {
+		t.Fatalf("expected concurrent GitHub checks, max active was %d", maxActive)
+	}
+}
+
+func TestListWorktreesForTUISkipsGitHubLookupForCachedMergedBranch(t *testing.T) {
+	tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-search")
+	defer cleanup()
+
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	var calls int32
+	wm := &WorktreeManager{
+		repoRoot: tempDir,
+		githubClient: github.NewClientWithRunnerAndCachePath(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+			atomic.AddInt32(&calls, 1)
+			return []byte(`[{"state":"OPEN"}]`), nil
+		}, cachePath),
+	}
+	commit := currentCommit(t, tempDir, "feature-search")
+	wm.githubClient.RememberMergedPRStatus("feature-search", commit)
+
+	worktrees, err := wm.ListWorktreesForTUIWithProgress(nil)
+	if err != nil {
+		t.Fatalf("ListWorktreesForTUIWithProgress returned error: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected no GitHub calls for cached merged branch, got %d", calls)
+	}
+
+	for _, wt := range worktrees {
+		if wt.Branch == "feature-search" {
+			if !wt.Merged || wt.PRStatus != "Merged" {
+				t.Fatalf("expected cached merged branch to be marked merged, got %#v", wt)
+			}
+			return
+		}
+	}
+	t.Fatalf("feature-search worktree was not returned: %#v", worktrees)
+}
+
 func setupRepoWithFeatureWorktree(t *testing.T, branch string) (string, func()) {
+	return setupRepoWithFeatureWorktrees(t, branch)
+}
+
+func setupRepoWithFeatureWorktrees(t *testing.T, branches ...string) (string, func()) {
 	t.Helper()
 
 	tempDir, err := os.MkdirTemp("", "sprout-tui-worktree-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	worktreePath := filepath.Join(filepath.Dir(tempDir), branch)
+	var worktreePaths []string
+	for _, branch := range branches {
+		worktreePaths = append(worktreePaths, filepath.Join(filepath.Dir(tempDir), branch))
+	}
 	cleanup := func() {
 		os.RemoveAll(tempDir)
-		os.RemoveAll(worktreePath)
+		for _, worktreePath := range worktreePaths {
+			os.RemoveAll(worktreePath)
+		}
 	}
 
 	runGit(t, tempDir, "init")
@@ -495,9 +572,22 @@ func setupRepoWithFeatureWorktree(t *testing.T, branch string) (string, func()) 
 	}
 	runGit(t, tempDir, "add", ".")
 	runGit(t, tempDir, "commit", "-m", "Initial commit")
-	runGit(t, tempDir, "worktree", "add", worktreePath, "-b", branch, "master")
+	for i, branch := range branches {
+		runGit(t, tempDir, "worktree", "add", worktreePaths[i], "-b", branch, "master")
+	}
 
 	return tempDir, cleanup
+}
+
+func currentCommit(t *testing.T, dir string, branch string) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", branch)
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("failed to read commit for %s: %v", branch, err)
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
