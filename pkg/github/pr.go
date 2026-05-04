@@ -2,6 +2,7 @@ package github
 
 import (
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -13,25 +14,45 @@ type PR struct {
 
 type Client struct {
 	repoRoot string
+	runner   commandRunner
 }
+
+type commandRunner func(dir string, name string, args ...string) ([]byte, error)
 
 func NewClient(repoRoot string) *Client {
 	return &Client{
 		repoRoot: repoRoot,
+		runner:   runCommandOutput,
 	}
+}
+
+func NewClientWithRunner(repoRoot string, runner commandRunner) *Client {
+	if runner == nil {
+		runner = runCommandOutput
+	}
+	return &Client{
+		repoRoot: repoRoot,
+		runner:   runner,
+	}
+}
+
+func runCommandOutput(dir string, name string, args ...string) ([]byte, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	return cmd.Output()
 }
 
 func (c *Client) GetPRStatus(branchName string) string {
 	if branchName == "" || branchName == "master" || branchName == "main" {
 		return "-"
 	}
-	
+
 	// Fast git-based check first
 	status := c.checkBranchStatusWithGit(branchName)
 	if status != "" {
 		return status
 	}
-	
+
 	// Fallback to gh command if git checks are inconclusive
 	return c.checkPRStatusWithGH(branchName)
 }
@@ -48,7 +69,7 @@ func (c *Client) checkBranchStatusWithGit(branchName string) string {
 		}
 		return "No PR"
 	}
-	
+
 	// Remote branch exists, check if it's ahead/behind
 	return "" // Let gh command handle this case
 }
@@ -59,7 +80,7 @@ func (c *Client) isBranchMerged(branchName string) bool {
 	if mainBranch == "" {
 		return false
 	}
-	
+
 	// Check if branch commits are in main branch history
 	cmd := exec.Command("git", "merge-base", "--is-ancestor", branchName, mainBranch)
 	cmd.Dir = c.repoRoot
@@ -77,7 +98,7 @@ func (c *Client) getMainBranch() string {
 			return parts[len(parts)-1]
 		}
 	}
-	
+
 	// Fallback to common names
 	for _, branch := range []string{"main", "master"} {
 		cmd := exec.Command("git", "rev-parse", "--verify", "origin/"+branch)
@@ -86,7 +107,7 @@ func (c *Client) getMainBranch() string {
 			return branch
 		}
 	}
-	
+
 	return "main" // Default fallback
 }
 
@@ -98,37 +119,50 @@ func (c *Client) wasBranchPushed(branchName string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	// If we find any reflog entries mentioning origin/branchName, it was pushed
 	return len(strings.TrimSpace(string(output))) > 0
 }
 
 func (c *Client) checkPRStatusWithGH(branchName string) string {
-	cmd := exec.Command("gh", "pr", "list", "--head", branchName, "--state", "all", "--json", "state", "--limit", "1")
-	cmd.Dir = c.repoRoot
-	
-	output, err := cmd.Output()
+	status, err := c.GetPRStatusFromGH(branchName)
 	if err != nil {
 		return "-"
 	}
-	
+	return status
+}
+
+func PRStatusCommand(branchName string) string {
+	return fmt.Sprintf("gh pr list --head %s --state all --json state --limit 1", branchName)
+}
+
+func (c *Client) GetPRStatusFromGH(branchName string) (string, error) {
+	if branchName == "" || branchName == "master" || branchName == "main" {
+		return "-", nil
+	}
+
+	output, err := c.runner(c.repoRoot, "gh", "pr", "list", "--head", branchName, "--state", "all", "--json", "state", "--limit", "1")
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", PRStatusCommand(branchName), err)
+	}
+
 	var prs []PR
 	if err := json.Unmarshal(output, &prs); err != nil {
-		return "-"
+		return "", fmt.Errorf("%s: %w", PRStatusCommand(branchName), err)
 	}
-	
+
 	if len(prs) == 0 {
-		return "No PR"
+		return "No PR", nil
 	}
-	
+
 	switch prs[0].State {
 	case "OPEN":
-		return "Open"
+		return "Open", nil
 	case "MERGED":
-		return "Merged"
+		return "Merged", nil
 	case "CLOSED":
-		return "Closed"
+		return "Closed", nil
 	default:
-		return prs[0].State
+		return prs[0].State, nil
 	}
 }

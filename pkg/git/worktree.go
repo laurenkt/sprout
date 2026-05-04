@@ -18,6 +18,7 @@ type WorktreeManagerInterface interface {
 	CreateBranch(branchName string) error
 	ListWorktrees() ([]Worktree, error)
 	ListWorktreesForTUI() ([]Worktree, error)
+	ListWorktreesForTUIWithProgress(func(string)) ([]Worktree, error)
 	PruneWorktree(branchName string) error
 	PruneAllMerged() error
 }
@@ -293,6 +294,11 @@ func (wm *WorktreeManager) ListWorktrees() ([]Worktree, error) {
 }
 
 func (wm *WorktreeManager) ListWorktreesForTUI() ([]Worktree, error) {
+	return wm.ListWorktreesForTUIWithProgress(nil)
+}
+
+func (wm *WorktreeManager) ListWorktreesForTUIWithProgress(progress func(string)) ([]Worktree, error) {
+	reportProgress(progress, "git worktree list --porcelain")
 	cmd := exec.Command("git", "worktree", "list", "--porcelain")
 	cmd.Dir = wm.repoRoot
 
@@ -302,8 +308,8 @@ func (wm *WorktreeManager) ListWorktreesForTUI() ([]Worktree, error) {
 	}
 
 	worktrees := parseWorktreeList(string(output))
-	commitTimes := wm.branchCommitTimes()
-	mergedBranches := wm.mergedBranches()
+	branches := tuiWorktreeBranches(worktrees)
+	commitTimes := wm.branchCommitTimesFor(branches, progress)
 
 	for i := range worktrees {
 		if updatedAt, ok := commitTimes[worktrees[i].Branch]; ok {
@@ -314,13 +320,55 @@ func (wm *WorktreeManager) ListWorktreesForTUI() ([]Worktree, error) {
 				worktrees[i].UpdatedAt = info.ModTime()
 			}
 		}
-		worktrees[i].Merged = mergedBranches[worktrees[i].Branch]
-		if worktrees[i].Merged {
-			worktrees[i].PRStatus = "Merged"
+
+		if !shouldCheckPRStatusForTUI(worktrees[i]) || wm.githubClient == nil {
+			continue
+		}
+
+		command := github.PRStatusCommand(worktrees[i].Branch)
+		reportProgress(progress, command)
+		prStatus, err := wm.githubClient.GetPRStatusFromGH(worktrees[i].Branch)
+		if err != nil {
+			return nil, err
+		}
+		worktrees[i].PRStatus = prStatus
+		if prStatus == "Merged" {
+			worktrees[i].Merged = true
 		}
 	}
 
 	return worktrees, nil
+}
+
+func reportProgress(progress func(string), status string) {
+	if progress != nil {
+		progress(status)
+	}
+}
+
+func tuiWorktreeBranches(worktrees []Worktree) []string {
+	branches := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, wt := range worktrees {
+		if !shouldCheckBranchMetadataForTUI(wt) || seen[wt.Branch] {
+			continue
+		}
+		branches = append(branches, wt.Branch)
+		seen[wt.Branch] = true
+	}
+	return branches
+}
+
+func shouldCheckBranchMetadataForTUI(wt Worktree) bool {
+	if wt.Prunable || wt.Branch == "" {
+		return false
+	}
+	branch := strings.ToLower(wt.Branch)
+	return branch != "main" && branch != "master"
+}
+
+func shouldCheckPRStatusForTUI(wt Worktree) bool {
+	return shouldCheckBranchMetadataForTUI(wt)
 }
 
 func parseWorktreeList(output string) []Worktree {
@@ -365,8 +413,18 @@ func parseWorktreeList(output string) []Worktree {
 }
 
 func (wm *WorktreeManager) branchCommitTimes() map[string]time.Time {
+	return wm.branchCommitTimesFor(nil, nil)
+}
+
+func (wm *WorktreeManager) branchCommitTimesFor(branches []string, progress func(string)) map[string]time.Time {
 	result := make(map[string]time.Time)
-	cmd := exec.Command("git", "for-each-ref", "refs/heads", "--format=%(refname:short)%00%(committerdate:iso-strict)")
+	args := branchCommitTimesCommandArgs(branches)
+	if len(args) == 0 {
+		return result
+	}
+	reportProgress(progress, "git "+strings.Join(args, " "))
+
+	cmd := exec.Command("git", args...)
 	cmd.Dir = wm.repoRoot
 	output, err := cmd.Output()
 	if err != nil {
@@ -385,6 +443,21 @@ func (wm *WorktreeManager) branchCommitTimes() map[string]time.Time {
 		}
 	}
 	return result
+}
+
+func branchCommitTimesCommandArgs(branches []string) []string {
+	if branches != nil && len(branches) == 0 {
+		return nil
+	}
+	args := []string{"for-each-ref"}
+	if branches == nil {
+		args = append(args, "refs/heads")
+	} else {
+		for _, branch := range branches {
+			args = append(args, "refs/heads/"+branch)
+		}
+	}
+	return append(args, "--format=%(refname:short)%00%(committerdate:iso-strict)")
 }
 
 func (wm *WorktreeManager) mergedBranches() map[string]bool {

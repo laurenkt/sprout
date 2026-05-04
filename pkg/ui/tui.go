@@ -23,55 +23,58 @@ import (
 )
 
 type model struct {
-	TextInput          textinput.Model
-	PromptInput        textarea.Model
-	SubtaskInput       textinput.Model
-	Spinner            spinner.Model
-	Submitted          bool
-	Creating           bool
-	Done               bool
-	Success            bool
-	Cancelled          bool
-	ErrorMsg           string
-	Result             string
-	WorktreePath       string
-	WorktreeManager    git.WorktreeManagerInterface
-	LinearClient       linear.LinearClientInterface
-	LinearIssues       []linear.Issue
-	LinearLoading      bool
-	LinearError        string
-	FooterError        string
-	Worktrees          []git.Worktree
-	WorktreesLoading   bool
-	WorktreesError     string
-	ShowAllWorkItems   bool
-	SelectedWorktree   string
-	ResumeBranch       string
-	ResumeCommandArgs  []string
-	Resumed            bool
-	SelectedIssue      *linear.Issue  // nil for custom input mode
-	InputMode          bool           // true when in custom input mode, false when selecting tickets
-	CreatingSubtask    bool           // true while creating subtask
-	SubtaskInputMode   bool           // true when editing subtask inline
-	SubtaskParentID    string         // ID of parent issue when creating subtask
-	AddSubtaskSelected string         // ID of parent issue whose "Add subtask" is selected
-	DefaultPlaceholder string         // The default placeholder text for the input
-	SearchMode         bool           // true when in fuzzy search mode (triggered by /)
-	SearchQuery        string         // current search query in search mode
-	FilteredIssues     []linear.Issue // filtered list of issues based on search
-	Width              int            // terminal width
-	Height             int            // terminal height
-	MaxIdentifierWidth int            // maximum width of issue identifiers for alignment
-	MaxStatusWidth     int            // maximum width of issue statuses for alignment
-	CreationMode       creationMode   // user-selected creation mode
-	ActiveCreationMode creationMode   // creation mode currently executing
-	LastUnassigned     *unassignedIssueSnapshot
-	DefaultCommandArgs []string
-	NeedsPromptCapture bool
-	PromptCaptureMode  bool
-	PromptSubmitted    bool
-	CreationFinished   bool
-	CapturedPrompt     string
+	TextInput              textinput.Model
+	PromptInput            textarea.Model
+	SubtaskInput           textinput.Model
+	Spinner                spinner.Model
+	Submitted              bool
+	Creating               bool
+	Done                   bool
+	Success                bool
+	Cancelled              bool
+	ErrorMsg               string
+	Result                 string
+	WorktreePath           string
+	WorktreeManager        git.WorktreeManagerInterface
+	LinearClient           linear.LinearClientInterface
+	LinearIssues           []linear.Issue
+	LinearLoading          bool
+	LinearLoadingStatus    string
+	LinearError            string
+	FooterError            string
+	Worktrees              []git.Worktree
+	WorktreesLoading       bool
+	WorktreesLoadingStatus string
+	WorktreesError         string
+	WorktreeLoadCh         <-chan tea.Msg
+	ShowAllWorkItems       bool
+	SelectedWorktree       string
+	ResumeBranch           string
+	ResumeCommandArgs      []string
+	Resumed                bool
+	SelectedIssue          *linear.Issue  // nil for custom input mode
+	InputMode              bool           // true when in custom input mode, false when selecting tickets
+	CreatingSubtask        bool           // true while creating subtask
+	SubtaskInputMode       bool           // true when editing subtask inline
+	SubtaskParentID        string         // ID of parent issue when creating subtask
+	AddSubtaskSelected     string         // ID of parent issue whose "Add subtask" is selected
+	DefaultPlaceholder     string         // The default placeholder text for the input
+	SearchMode             bool           // true when in fuzzy search mode (triggered by /)
+	SearchQuery            string         // current search query in search mode
+	FilteredIssues         []linear.Issue // filtered list of issues based on search
+	Width                  int            // terminal width
+	Height                 int            // terminal height
+	MaxIdentifierWidth     int            // maximum width of issue identifiers for alignment
+	MaxStatusWidth         int            // maximum width of issue statuses for alignment
+	CreationMode           creationMode   // user-selected creation mode
+	ActiveCreationMode     creationMode   // creation mode currently executing
+	LastUnassigned         *unassignedIssueSnapshot
+	DefaultCommandArgs     []string
+	NeedsPromptCapture     bool
+	PromptCaptureMode      bool
+	PromptSubmitted        bool
+	CreationFinished       bool
+	CapturedPrompt         string
 }
 
 type unassignedIssueSnapshot struct {
@@ -270,53 +273,56 @@ func NewTUIWithDependenciesAndConfig(wm git.WorktreeManagerInterface, linearClie
 	s.Style = lipgloss.NewStyle().Foreground(warningColor)
 
 	return model{
-		TextInput:          ti,
-		PromptInput:        pi,
-		SubtaskInput:       si,
-		Spinner:            s,
-		Submitted:          false,
-		Creating:           false,
-		Done:               false,
-		Success:            false,
-		Cancelled:          false,
-		ErrorMsg:           "",
-		Result:             "",
-		WorktreePath:       "",
-		WorktreeManager:    wm,
-		LinearClient:       linearClient,
-		LinearIssues:       nil,
-		LinearLoading:      linearClient != nil, // Start loading if we have a client
-		LinearError:        "",
-		FooterError:        "",
-		Worktrees:          nil,
-		WorktreesLoading:   wm != nil,
-		WorktreesError:     "",
-		ShowAllWorkItems:   false,
-		SelectedWorktree:   "",
-		ResumeBranch:       "",
-		ResumeCommandArgs:  resumeCommandArgs,
-		Resumed:            false,
-		SelectedIssue:      nil, // Start with custom input selected
-		InputMode:          true,
-		CreatingSubtask:    false,
-		SubtaskInputMode:   false,
-		SubtaskParentID:    "",
-		AddSubtaskSelected: "",
-		DefaultPlaceholder: "enter branch name or select suggestion below",
-		SearchMode:         false,
-		SearchQuery:        "",
-		FilteredIssues:     nil,
-		Width:              80, // Default, will be updated when we get window size
-		Height:             24, // Default, will be updated when we get window size
-		CreationMode:       creationModeWorktree,
-		ActiveCreationMode: creationModeWorktree,
-		LastUnassigned:     nil,
-		DefaultCommandArgs: defaultCommandArgs,
-		NeedsPromptCapture: config.NeedsPromptCapture(defaultCommandArgs),
-		PromptCaptureMode:  false,
-		PromptSubmitted:    false,
-		CreationFinished:   false,
-		CapturedPrompt:     "",
+		TextInput:              ti,
+		PromptInput:            pi,
+		SubtaskInput:           si,
+		Spinner:                s,
+		Submitted:              false,
+		Creating:               false,
+		Done:                   false,
+		Success:                false,
+		Cancelled:              false,
+		ErrorMsg:               "",
+		Result:                 "",
+		WorktreePath:           "",
+		WorktreeManager:        wm,
+		LinearClient:           linearClient,
+		LinearIssues:           nil,
+		LinearLoading:          linearClient != nil, // Start loading if we have a client
+		LinearLoadingStatus:    "Loading Linear issues...",
+		LinearError:            "",
+		FooterError:            "",
+		Worktrees:              nil,
+		WorktreesLoading:       wm != nil,
+		WorktreesLoadingStatus: "git worktree list --porcelain",
+		WorktreesError:         "",
+		WorktreeLoadCh:         nil,
+		ShowAllWorkItems:       false,
+		SelectedWorktree:       "",
+		ResumeBranch:           "",
+		ResumeCommandArgs:      resumeCommandArgs,
+		Resumed:                false,
+		SelectedIssue:          nil, // Start with custom input selected
+		InputMode:              true,
+		CreatingSubtask:        false,
+		SubtaskInputMode:       false,
+		SubtaskParentID:        "",
+		AddSubtaskSelected:     "",
+		DefaultPlaceholder:     "enter branch name or select suggestion below",
+		SearchMode:             false,
+		SearchQuery:            "",
+		FilteredIssues:         nil,
+		Width:                  80, // Default, will be updated when we get window size
+		Height:                 24, // Default, will be updated when we get window size
+		CreationMode:           creationModeWorktree,
+		ActiveCreationMode:     creationModeWorktree,
+		LastUnassigned:         nil,
+		DefaultCommandArgs:     defaultCommandArgs,
+		NeedsPromptCapture:     config.NeedsPromptCapture(defaultCommandArgs),
+		PromptCaptureMode:      false,
+		PromptSubmitted:        false,
+		CreationFinished:       false,
+		CapturedPrompt:         "",
 	}, nil
 }
 
@@ -712,14 +718,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.LinearLoading = false
 		m.LinearError = msg.err.Error()
 
+	case worktreeLoadStartedMsg:
+		m.WorktreeLoadCh = msg.ch
+		return m, waitForWorktreeLoad(msg.ch)
+
+	case worktreesLoadingStatusMsg:
+		m.WorktreesLoadingStatus = msg.status
+		if m.WorktreeLoadCh != nil {
+			return m, waitForWorktreeLoad(m.WorktreeLoadCh)
+		}
+
 	case worktreesLoadedMsg:
 		m.WorktreesLoading = false
 		m.Worktrees = msg.worktrees
 		m.WorktreesError = ""
+		m.WorktreeLoadCh = nil
 
 	case worktreesErrorMsg:
 		m.WorktreesLoading = false
 		m.WorktreesError = msg.err.Error()
+		m.WorktreeLoadCh = nil
 
 	case childrenLoadedMsg:
 		m.FooterError = ""
@@ -965,11 +983,29 @@ func (m model) fetchLinearIssues() tea.Cmd {
 
 func (m model) fetchWorktrees() tea.Cmd {
 	return func() tea.Msg {
-		worktrees, err := m.WorktreeManager.ListWorktreesForTUI()
-		if err != nil {
-			return worktreesErrorMsg{err}
+		ch := make(chan tea.Msg, 16)
+		go func() {
+			worktrees, err := m.WorktreeManager.ListWorktreesForTUIWithProgress(func(status string) {
+				ch <- worktreesLoadingStatusMsg{status: status}
+			})
+			if err != nil {
+				ch <- worktreesErrorMsg{err}
+			} else {
+				ch <- worktreesLoadedMsg{worktrees}
+			}
+			close(ch)
+		}()
+		return worktreeLoadStartedMsg{ch: ch}
+	}
+}
+
+func waitForWorktreeLoad(ch <-chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
 		}
-		return worktreesLoadedMsg{worktrees}
+		return msg
 	}
 }
 
@@ -1556,6 +1592,14 @@ type linearErrorMsg struct {
 	err error
 }
 
+type worktreeLoadStartedMsg struct {
+	ch <-chan tea.Msg
+}
+
+type worktreesLoadingStatusMsg struct {
+	status string
+}
+
 type worktreesLoadedMsg struct {
 	worktrees []git.Worktree
 }
@@ -1689,7 +1733,7 @@ func (m model) View() string {
 
 	// Display Linear tickets tree if available
 	if m.LinearLoading || m.WorktreesLoading {
-		s.WriteString(fmt.Sprintf("%s Loading work queue...", m.Spinner.View()))
+		s.WriteString(m.renderLoadingStatus())
 	} else if m.LinearError != "" {
 		s.WriteString(errorStyle.Render("Error: " + m.LinearError))
 	} else if m.WorktreesError != "" {
@@ -1724,6 +1768,25 @@ func (m model) View() string {
 	s.WriteString(helpStyle.Render(m.renderFooter(hotkeys)))
 
 	return s.String()
+}
+
+func (m model) renderLoadingStatus() string {
+	var lines []string
+	if m.LinearLoading {
+		status := m.LinearLoadingStatus
+		if status == "" {
+			status = "Loading Linear issues..."
+		}
+		lines = append(lines, fmt.Sprintf("%s %s", m.Spinner.View(), status))
+	}
+	if m.WorktreesLoading {
+		status := m.WorktreesLoadingStatus
+		if status == "" {
+			status = "git worktree list --porcelain"
+		}
+		lines = append(lines, fmt.Sprintf("%s %s", m.Spinner.View(), status))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m model) renderFooter(hotkeys string) string {

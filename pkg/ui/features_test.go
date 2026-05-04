@@ -35,6 +35,7 @@ type TUITestContext struct {
 	t                   *testing.T
 	terminalWidth       int
 	terminalHeight      int
+	pauseLinearLoading  bool
 }
 
 // NewTUITestContext creates a new test context
@@ -63,6 +64,8 @@ type testWorktreeManager struct {
 	worktrees           []git.Worktree
 	delayCreate         bool
 	createUnblock       chan struct{}
+	pauseStatus         string
+	failPRBranch        string
 }
 
 func (m *testWorktreeManager) CreateWorktree(branchName string) (string, error) {
@@ -96,6 +99,26 @@ func (m *testWorktreeManager) ListWorktrees() ([]git.Worktree, error) {
 }
 
 func (m *testWorktreeManager) ListWorktreesForTUI() ([]git.Worktree, error) {
+	return m.worktrees, nil
+}
+
+func (m *testWorktreeManager) ListWorktreesForTUIWithProgress(progress func(string)) ([]git.Worktree, error) {
+	if m.pauseStatus != "" {
+		if progress != nil {
+			progress(m.pauseStatus)
+		}
+		return nil, nil
+	}
+	if progress != nil {
+		progress("git worktree list --porcelain")
+	}
+	if m.failPRBranch != "" {
+		command := fmt.Sprintf("gh pr list --head %s --state all --json state --limit 1", m.failPRBranch)
+		if progress != nil {
+			progress(command)
+		}
+		return nil, fmt.Errorf("%s: failed", command)
+	}
 	return m.worktrees, nil
 }
 
@@ -319,22 +342,32 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 func (tc *TUITestContext) executeInitialization() {
 	// Manually trigger the linear loading since we can't easily execute tea.Batch in tests
 	if tc.model.LinearClient != nil && tc.model.LinearLoading {
-		// Simulate the fetchLinearIssues command
-		issues, err := tc.model.LinearClient.GetAssignedIssues()
-
-		var msg tea.Msg
-		if err != nil {
-			msg = linearErrorMsg{err}
+		if tc.pauseLinearLoading {
+			tc.model.LinearLoadingStatus = "Loading Linear issues..."
 		} else {
-			msg = linearIssuesLoadedMsg{issues}
-		}
+			// Simulate the fetchLinearIssues command
+			issues, err := tc.model.LinearClient.GetAssignedIssues()
 
-		// Update the model with the loading result
-		updatedModel, _ := tc.model.Update(msg)
-		tc.model = updatedModel.(model)
+			var msg tea.Msg
+			if err != nil {
+				msg = linearErrorMsg{err}
+			} else {
+				msg = linearIssuesLoadedMsg{issues}
+			}
+
+			// Update the model with the loading result
+			updatedModel, _ := tc.model.Update(msg)
+			tc.model = updatedModel.(model)
+		}
 	}
 	if tc.model.WorktreeManager != nil && tc.model.WorktreesLoading {
-		worktrees, err := tc.model.WorktreeManager.ListWorktreesForTUI()
+		worktrees, err := tc.model.WorktreeManager.ListWorktreesForTUIWithProgress(func(status string) {
+			updatedModel, _ := tc.model.Update(worktreesLoadingStatusMsg{status: status})
+			tc.model = updatedModel.(model)
+		})
+		if tc.fakeWorktreeManager.pauseStatus != "" {
+			return
+		}
 		var msg tea.Msg
 		if err != nil {
 			msg = worktreesErrorMsg{err}
@@ -878,6 +911,48 @@ func (tc *TUITestContext) theUIShouldShowWorkQueueRows(count int) error {
 	return nil
 }
 
+func (tc *TUITestContext) theUIShouldNotShowWorkQueueRows() error {
+	return tc.theUIShouldShowWorkQueueRows(0)
+}
+
+func (tc *TUITestContext) worktreeLoadingIsPausedAt(status string) error {
+	tc.fakeWorktreeManager.pauseStatus = status
+	return nil
+}
+
+func (tc *TUITestContext) linearIssueLoadingIsPaused() error {
+	tc.pauseLinearLoading = true
+	return nil
+}
+
+func (tc *TUITestContext) worktreeLoadingHasCompleted() error {
+	tc.fakeWorktreeManager.pauseStatus = ""
+	return nil
+}
+
+func (tc *TUITestContext) linearIssueLoadingCompletes() error {
+	tc.pauseLinearLoading = false
+	issues, err := tc.model.LinearClient.GetAssignedIssues()
+	var msg tea.Msg
+	if err != nil {
+		msg = linearErrorMsg{err}
+	} else {
+		msg = linearIssuesLoadedMsg{issues}
+	}
+	updatedModel, _ := tc.model.Update(msg)
+	tc.model = updatedModel.(model)
+	return nil
+}
+
+func (tc *TUITestContext) githubPRStatusLookupFailsForBranch(branch string) error {
+	tc.fakeWorktreeManager.failPRBranch = branch
+	tc.fakeWorktreeManager.worktrees = []git.Worktree{{
+		Branch: branch,
+		Path:   "/mock/worktrees/" + branch,
+	}}
+	return nil
+}
+
 func (tc *TUITestContext) postResumeCommandShouldBe(command string) error {
 	tc.drainWithTimeout(20 * time.Millisecond)
 	if len(tc.postResumeRuns) != 1 {
@@ -925,6 +1000,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 		tc.t = t              // Ensure t is set for each scenario
 		tc.terminalWidth = 80 // Reset to default
 		tc.terminalHeight = 24
+		tc.pauseLinearLoading = false
 		return ctx, nil
 	})
 
@@ -948,6 +1024,12 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	ctx.Step(`^a worktree should be created for branch "([^"]*)"$`, tc.aWorktreeShouldBeCreatedForBranch)
 	ctx.Step(`^(\d+) active work queue rows exist$`, tc.activeWorkQueueRowsExist)
 	ctx.Step(`^the UI should show (\d+) work queue rows$`, tc.theUIShouldShowWorkQueueRows)
+	ctx.Step(`^the UI should not show work queue rows$`, tc.theUIShouldNotShowWorkQueueRows)
+	ctx.Step(`^worktree loading is paused at "([^"]*)"$`, tc.worktreeLoadingIsPausedAt)
+	ctx.Step(`^Linear issue loading is paused$`, tc.linearIssueLoadingIsPaused)
+	ctx.Step(`^worktree loading has completed$`, tc.worktreeLoadingHasCompleted)
+	ctx.Step(`^Linear issue loading completes$`, tc.linearIssueLoadingCompletes)
+	ctx.Step(`^GitHub PR status lookup fails for branch "([^"]*)"$`, tc.githubPRStatusLookupFailsForBranch)
 	ctx.Step(`^the post-resume command should be "([^"]*)"$`, tc.postResumeCommandShouldBe)
 	ctx.Step(`^no post-resume command should run$`, tc.noPostResumeCommandShouldRun)
 	ctx.Step(`^the default worktree command is "([^"]*)"$`, tc.theDefaultWorktreeCommandIs)
@@ -979,6 +1061,7 @@ func TestFeatures(t *testing.T) {
 				"../../features/resume_command.feature",
 				"../../features/resume_work_queue.feature",
 				"../../features/search.feature",
+				"../../features/work_queue_loading.feature",
 				"../../features/window_width.feature",
 			},
 			TestingT: t,

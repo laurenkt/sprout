@@ -77,6 +77,10 @@ func (m *MockWorktreeManager) ListWorktreesForTUI() ([]Worktree, error) {
 	return m.worktrees, nil
 }
 
+func (m *MockWorktreeManager) ListWorktreesForTUIWithProgress(progress func(string)) ([]Worktree, error) {
+	return m.worktrees, nil
+}
+
 // PruneWorktree removes a worktree from the mock list by branch name
 func (m *MockWorktreeManager) PruneWorktree(branchName string) error {
 	for i, wt := range m.worktrees {
