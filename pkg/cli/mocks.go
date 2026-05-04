@@ -28,6 +28,10 @@ func (m *MockWorktreeManager) ListWorktreesForTUI() ([]git.Worktree, error) {
 	return m.Worktrees, nil
 }
 
+func (m *MockWorktreeManager) ListWorktreesForTUIWithProgress(progress func(string)) ([]git.Worktree, error) {
+	return m.Worktrees, nil
+}
+
 func (m *MockWorktreeManager) PruneWorktree(branchName string) error {
 	return nil
 }

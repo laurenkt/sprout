@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"sprout/pkg/config"
+	"sprout/pkg/github"
 )
 
 func TestGetBaseBranch(t *testing.T) {
@@ -346,6 +348,165 @@ func TestListWorktreesForTUIDoesNotMarkFreshWorktreeAsMerged(t *testing.T) {
 	}
 
 	t.Fatalf("fresh worktree was not returned in TUI worktrees: %#v", worktrees)
+}
+
+func TestTUIWorktreeBranchMetadataCommandScopesToWorktreeBranches(t *testing.T) {
+	worktrees := []Worktree{
+		{Branch: "main", Path: "/mock/main"},
+		{Branch: "feature-search", Path: "/mock/feature-search"},
+		{Branch: "spr-124-dashboard-analytics", Path: "/mock/spr-124-dashboard-analytics"},
+	}
+
+	branches := tuiWorktreeBranches(worktrees)
+	args := branchCommitTimesCommandArgs(branches)
+	command := "git " + strings.Join(args, " ")
+	expected := "git for-each-ref refs/heads/feature-search refs/heads/spr-124-dashboard-analytics --format=%(refname:short)%00%(committerdate:iso-strict)"
+
+	if command != expected {
+		t.Fatalf("expected scoped for-each-ref command %q, got %q", expected, command)
+	}
+}
+
+func TestTUIWorktreeBranchMetadataSkipsForEachRefWhenNoBranches(t *testing.T) {
+	branches := tuiWorktreeBranches([]Worktree{
+		{Branch: "main", Path: "/mock/main"},
+		{Branch: "master", Path: "/mock/master"},
+		{Branch: "", Path: "/mock/detached"},
+	})
+	if len(branches) != 0 {
+		t.Fatalf("expected no TUI metadata branches, got %v", branches)
+	}
+	if args := branchCommitTimesCommandArgs(branches); len(args) != 0 {
+		t.Fatalf("expected no for-each-ref args, got %v", args)
+	}
+}
+
+func TestListWorktreesForTUIUsesGitHubMergedStateForSquashAndDeletedRemoteBranches(t *testing.T) {
+	tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-search")
+	defer cleanup()
+
+	commands := []string{}
+	wm := &WorktreeManager{
+		repoRoot: tempDir,
+		githubClient: github.NewClientWithRunner(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+			commands = append(commands, name+" "+strings.Join(args, " "))
+			return []byte(`[{"state":"MERGED"}]`), nil
+		}),
+	}
+
+	worktrees, err := wm.ListWorktreesForTUIWithProgress(nil)
+	if err != nil {
+		t.Fatalf("ListWorktreesForTUIWithProgress returned error: %v", err)
+	}
+
+	var found *Worktree
+	for i := range worktrees {
+		if worktrees[i].Branch == "feature-search" {
+			found = &worktrees[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("feature-search worktree was not returned: %#v", worktrees)
+	}
+	if !found.Merged || found.PRStatus != "Merged" {
+		t.Fatalf("expected GitHub MERGED status to mark worktree merged, got %#v", *found)
+	}
+	if len(commands) != 1 || commands[0] != "gh pr list --head feature-search --state all --json state --limit 1" {
+		t.Fatalf("expected one scoped gh command, got %v", commands)
+	}
+}
+
+func TestListWorktreesForTUIKeepsOpenClosedAndNoPRActive(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		output string
+	}{
+		{name: "open", output: `[{"state":"OPEN"}]`},
+		{name: "closed", output: `[{"state":"CLOSED"}]`},
+		{name: "no-pr", output: `[]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-search")
+			defer cleanup()
+
+			wm := &WorktreeManager{
+				repoRoot: tempDir,
+				githubClient: github.NewClientWithRunner(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+					return []byte(tc.output), nil
+				}),
+			}
+
+			worktrees, err := wm.ListWorktreesForTUIWithProgress(nil)
+			if err != nil {
+				t.Fatalf("ListWorktreesForTUIWithProgress returned error: %v", err)
+			}
+			for _, wt := range worktrees {
+				if wt.Branch == "feature-search" && wt.Merged {
+					t.Fatalf("expected %s PR state to remain active, got %#v", tc.name, wt)
+				}
+			}
+		})
+	}
+}
+
+func TestListWorktreesForTUIGitHubFailureIncludesExactCommand(t *testing.T) {
+	tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-search")
+	defer cleanup()
+
+	wm := &WorktreeManager{
+		repoRoot: tempDir,
+		githubClient: github.NewClientWithRunner(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+			return nil, errors.New("boom")
+		}),
+	}
+
+	_, err := wm.ListWorktreesForTUIWithProgress(nil)
+	if err == nil {
+		t.Fatalf("expected GitHub lookup error")
+	}
+	expected := "gh pr list --head feature-search --state all --json state --limit 1"
+	if !strings.Contains(err.Error(), expected) {
+		t.Fatalf("expected error to contain %q, got %v", expected, err)
+	}
+}
+
+func setupRepoWithFeatureWorktree(t *testing.T, branch string) (string, func()) {
+	t.Helper()
+
+	tempDir, err := os.MkdirTemp("", "sprout-tui-worktree-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	worktreePath := filepath.Join(filepath.Dir(tempDir), branch)
+	cleanup := func() {
+		os.RemoveAll(tempDir)
+		os.RemoveAll(worktreePath)
+	}
+
+	runGit(t, tempDir, "init")
+	runGit(t, tempDir, "config", "user.email", "test@example.com")
+	runGit(t, tempDir, "config", "user.name", "Test User")
+
+	testFile := filepath.Join(tempDir, "README.md")
+	if err := os.WriteFile(testFile, []byte("# Test"), 0644); err != nil {
+		cleanup()
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	runGit(t, tempDir, "add", ".")
+	runGit(t, tempDir, "commit", "-m", "Initial commit")
+	runGit(t, tempDir, "worktree", "add", worktreePath, "-b", branch, "master")
+
+	return tempDir, cleanup
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s failed: %v\nOutput: %s", strings.Join(args, " "), err, string(output))
+	}
 }
 
 func TestCreateBranch(t *testing.T) {
