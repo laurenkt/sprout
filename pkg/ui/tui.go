@@ -40,6 +40,7 @@ type model struct {
 	LinearIssues       []linear.Issue
 	LinearLoading      bool
 	LinearError        string
+	FooterError        string
 	Worktrees          []git.Worktree
 	WorktreesLoading   bool
 	WorktreesError     string
@@ -286,6 +287,7 @@ func NewTUIWithDependenciesAndConfig(wm git.WorktreeManagerInterface, linearClie
 		LinearIssues:       nil,
 		LinearLoading:      linearClient != nil, // Start loading if we have a client
 		LinearError:        "",
+		FooterError:        "",
 		Worktrees:          nil,
 		WorktreesLoading:   wm != nil,
 		WorktreesError:     "",
@@ -720,6 +722,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.WorktreesError = msg.err.Error()
 
 	case childrenLoadedMsg:
+		m.FooterError = ""
 		m.setIssueChildren(msg.parentID, msg.children)
 		// Update placeholder if a Linear ticket is currently selected (but not in search mode)
 		if m.SelectedIssue != nil && !m.SearchMode {
@@ -727,7 +730,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case childrenErrorMsg:
-		// Could show error message or silently fail
+		// Still disclose the row so users can add a subtask even if child loading fails.
+		m.updateIssueExpansion(msg.parentID, true)
+		m.FooterError = msg.err.Error()
 
 	case subtaskCreatedMsg:
 		m.CreatingSubtask = false
@@ -972,7 +977,7 @@ func (m model) fetchChildren(issueID string) tea.Cmd {
 	return func() tea.Msg {
 		children, err := m.LinearClient.GetIssueChildren(issueID)
 		if err != nil {
-			return childrenErrorMsg{err}
+			return childrenErrorMsg{parentID: issueID, err: err}
 		}
 		return childrenLoadedMsg{issueID, children}
 	}
@@ -1565,7 +1570,8 @@ type childrenLoadedMsg struct {
 }
 
 type childrenErrorMsg struct {
-	err error
+	parentID string
+	err      error
 }
 
 type subtaskCreatedMsg struct {
@@ -1715,9 +1721,27 @@ func (m model) View() string {
 		}
 	}
 	hotkeys := modeLabel + allLabel + " [u unassign] [d done] [z undo]"
-	s.WriteString(helpStyle.Render(hotkeys))
+	s.WriteString(helpStyle.Render(m.renderFooter(hotkeys)))
 
 	return s.String()
+}
+
+func (m model) renderFooter(hotkeys string) string {
+	if m.FooterError == "" {
+		return hotkeys
+	}
+
+	if m.Width <= 0 {
+		return hotkeys + "\n" + m.FooterError
+	}
+
+	hotkeysWidth := lipgloss.Width(hotkeys)
+	errorWidth := lipgloss.Width(m.FooterError)
+	if hotkeysWidth+1+errorWidth <= m.Width {
+		return hotkeys + strings.Repeat(" ", m.Width-hotkeysWidth-errorWidth) + m.FooterError
+	}
+
+	return hotkeys + "\n" + m.FooterError
 }
 
 func (m model) renderPromptCaptureView() string {
