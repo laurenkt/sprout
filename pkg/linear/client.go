@@ -269,6 +269,21 @@ func (c *Client) GetAssignedIssues() ([]Issue, error) {
 		}
 	}
 
+	// If an assigned child is folded under an assigned parent, keep the parent
+	// discoverable and sort it by the freshest hidden child activity.
+	for childID, parentID := range issueParents {
+		child := allIssues[childID]
+		parent := allIssues[parentID]
+		if parent.ID == "" {
+			continue
+		}
+		parent.HasChildren = true
+		if child.UpdatedAt.After(parent.UpdatedAt) {
+			parent.UpdatedAt = child.UpdatedAt
+		}
+		allIssues[parentID] = parent
+	}
+
 	// Second pass: filter out issues whose parents are also in the assigned list
 	// Process in order to maintain consistent results
 	var filteredIssues []Issue
@@ -726,6 +741,7 @@ type FakeLinearClient struct {
 	topLevelIssues []string            // IDs of root issues (no parent)
 	childrenMap    map[string][]string // parentID -> childIDs
 	currentUser    *User               // Simulated current user
+	childFetchErrs map[string]error
 }
 
 // NewFakeLinearClient creates a new fake Linear client for testing
@@ -734,6 +750,7 @@ func NewFakeLinearClient() *FakeLinearClient {
 		issues:         make(map[string]Issue),
 		topLevelIssues: []string{},
 		childrenMap:    make(map[string][]string),
+		childFetchErrs: make(map[string]error),
 		currentUser: &User{
 			ID:          "fake-user-id",
 			Name:        "Test User",
@@ -741,6 +758,11 @@ func NewFakeLinearClient() *FakeLinearClient {
 			Email:       "test@example.com",
 		},
 	}
+}
+
+// FailChildFetch causes GetIssueChildren to fail for the given issue ID.
+func (f *FakeLinearClient) FailChildFetch(issueID string, err error) {
+	f.childFetchErrs[issueID] = err
 }
 
 // AddIssue adds an issue to the fake client's data store
@@ -800,6 +822,21 @@ func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
 		}
 	}
 
+	// If an assigned child is folded under an assigned parent, keep the parent
+	// discoverable and sort it by the freshest hidden child activity.
+	for childID, parentID := range issueParents {
+		child := allAssignedIssues[childID]
+		parent := allAssignedIssues[parentID]
+		if parent.ID == "" {
+			continue
+		}
+		parent.HasChildren = true
+		if child.UpdatedAt.After(parent.UpdatedAt) {
+			parent.UpdatedAt = child.UpdatedAt
+		}
+		allAssignedIssues[parentID] = parent
+	}
+
 	// Now filter out issues whose parents are also in the assigned list
 	// Process top-level issues in order to maintain consistent ordering
 	var filteredIssues []Issue
@@ -846,6 +883,10 @@ func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
 
 // GetIssueChildren returns children for a given issue ID
 func (f *FakeLinearClient) GetIssueChildren(issueID string) ([]Issue, error) {
+	if err, exists := f.childFetchErrs[issueID]; exists {
+		return nil, err
+	}
+
 	childIDs, exists := f.childrenMap[issueID]
 	if !exists {
 		return []Issue{}, nil

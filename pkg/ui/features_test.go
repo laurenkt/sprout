@@ -280,6 +280,11 @@ func (tc *TUITestContext) theFollowingWorktreesExist(worktreeTable *godog.Table)
 	return nil
 }
 
+func (tc *TUITestContext) fetchingChildrenForFails(identifier string) error {
+	tc.fakeClient.FailChildFetch(identifier, fmt.Errorf("failed to fetch children for %s", identifier))
+	return nil
+}
+
 func (tc *TUITestContext) iStartTheSproutTUI() error {
 	// Set consistent color profile for testing
 	lipgloss.SetColorProfile(termenv.Ascii)
@@ -925,6 +930,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 	// Step definitions
 	ctx.Step(`^the following Linear issues exist:$`, tc.theFollowingLinearIssuesExist)
 	ctx.Step(`^the following worktrees exist:$`, tc.theFollowingWorktreesExist)
+	ctx.Step(`^fetching children for "([^"]*)" fails$`, tc.fetchingChildrenForFails)
 	ctx.Step(`^a config with:$`, tc.aConfigWith)
 	ctx.Step(`^my terminal width is (\d+) characters$`, tc.myTerminalWidthIsCharacters)
 	ctx.Step(`^I start the Sprout TUI$`, tc.iStartTheSproutTUI)
