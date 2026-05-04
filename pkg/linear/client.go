@@ -72,16 +72,28 @@ type LinearClientInterface interface {
 // Client is a Linear API client
 type Client struct {
 	apiKey     string
+	endpoint   string
 	httpClient *http.Client
 }
 
 // NewClient creates a new Linear API client
 func NewClient(apiKey string) *Client {
-	return &Client{
-		apiKey: apiKey,
-		httpClient: &http.Client{
+	return NewClientWithEndpoint(apiKey, APIEndpoint, &http.Client{
+		Timeout: 30 * time.Second,
+	})
+}
+
+// NewClientWithEndpoint creates a Linear API client for a specific GraphQL endpoint.
+func NewClientWithEndpoint(apiKey, endpoint string, httpClient *http.Client) *Client {
+	if httpClient == nil {
+		httpClient = &http.Client{
 			Timeout: 30 * time.Second,
-		},
+		}
+	}
+	return &Client{
+		apiKey:     apiKey,
+		endpoint:   endpoint,
+		httpClient: httpClient,
 	}
 }
 
@@ -115,7 +127,7 @@ func (c *Client) makeRequest(query string, variables interface{}) (*GraphQLRespo
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", APIEndpoint, bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequest("POST", c.endpoint, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -145,7 +157,11 @@ func (c *Client) makeRequest(query string, variables interface{}) (*GraphQLRespo
 	}
 
 	if len(gqlResp.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL errors: %v", gqlResp.Errors)
+		messages := make([]string, 0, len(gqlResp.Errors))
+		for _, gqlErr := range gqlResp.Errors {
+			messages = append(messages, gqlErr.Message)
+		}
+		return nil, fmt.Errorf("%s", strings.Join(messages, "; "))
 	}
 
 	return &gqlResp, nil
@@ -308,8 +324,7 @@ func (c *Client) GetIssueChildren(issueID string) ([]Issue, error) {
 	query := `
 		query($issueId: String!) {
 			issue(id: $issueId) {
-				children(
-				) {
+				children {
 					nodes {
 						id
 						title
@@ -733,262 +748,6 @@ func (c *Client) getCompletedStateID(issueID string) (string, error) {
 func (c *Client) TestConnection() error {
 	_, err := c.GetCurrentUser()
 	return err
-}
-
-// FakeLinearClient simulates Linear API behavior with in-memory data for testing
-type FakeLinearClient struct {
-	issues         map[string]Issue    // All issues by ID
-	topLevelIssues []string            // IDs of root issues (no parent)
-	childrenMap    map[string][]string // parentID -> childIDs
-	currentUser    *User               // Simulated current user
-	childFetchErrs map[string]error
-}
-
-// NewFakeLinearClient creates a new fake Linear client for testing
-func NewFakeLinearClient() *FakeLinearClient {
-	return &FakeLinearClient{
-		issues:         make(map[string]Issue),
-		topLevelIssues: []string{},
-		childrenMap:    make(map[string][]string),
-		childFetchErrs: make(map[string]error),
-		currentUser: &User{
-			ID:          "fake-user-id",
-			Name:        "Test User",
-			DisplayName: "Test User",
-			Email:       "test@example.com",
-		},
-	}
-}
-
-// FailChildFetch causes GetIssueChildren to fail for the given issue ID.
-func (f *FakeLinearClient) FailChildFetch(issueID string, err error) {
-	f.childFetchErrs[issueID] = err
-}
-
-// AddIssue adds an issue to the fake client's data store
-func (f *FakeLinearClient) AddIssue(issue Issue, parentID string) {
-	if issue.Assignee == nil {
-		issue.Assignee = f.currentUser
-	}
-
-	// Store the issue
-	f.issues[issue.ID] = issue
-
-	if parentID == "" {
-		// Top-level issue
-		f.topLevelIssues = append(f.topLevelIssues, issue.ID)
-	} else {
-		// Child issue - add to parent's children map
-		f.childrenMap[parentID] = append(f.childrenMap[parentID], issue.ID)
-
-		// Update parent to have children
-		if parent, exists := f.issues[parentID]; exists {
-			parent.HasChildren = true
-			f.issues[parentID] = parent
-		}
-	}
-}
-
-// GetCurrentUser returns the fake current user
-func (f *FakeLinearClient) GetCurrentUser() (*User, error) {
-	return f.currentUser, nil
-}
-
-// GetAssignedIssues returns top-level issues (simulating API behavior)
-// This now filters out child issues whose parents are also assigned, matching the real API behavior
-func (f *FakeLinearClient) GetAssignedIssues() ([]Issue, error) {
-	// Collect all issues that would be assigned to the user
-	allAssignedIssues := make(map[string]Issue)
-	issueParents := make(map[string]string) // childID -> parentID
-
-	// Add all top-level issues (in order to maintain consistent ordering)
-	for _, issueID := range f.topLevelIssues {
-		if issue, exists := f.issues[issueID]; exists {
-			if issue.Assignee != nil && issue.Assignee.ID == f.currentUser.ID {
-				allAssignedIssues[issueID] = issue
-			}
-		}
-	}
-
-	// Add all child issues (simulating that they might also be assigned)
-	for parentID, childIDs := range f.childrenMap {
-		for _, childID := range childIDs {
-			if child, exists := f.issues[childID]; exists {
-				if child.Assignee != nil && child.Assignee.ID == f.currentUser.ID {
-					allAssignedIssues[childID] = child
-					issueParents[childID] = parentID
-				}
-			}
-		}
-	}
-
-	// If an assigned child is folded under an assigned parent, keep the parent
-	// discoverable and sort it by the freshest hidden child activity.
-	for childID, parentID := range issueParents {
-		child := allAssignedIssues[childID]
-		parent := allAssignedIssues[parentID]
-		if parent.ID == "" {
-			continue
-		}
-		parent.HasChildren = true
-		if child.UpdatedAt.After(parent.UpdatedAt) {
-			parent.UpdatedAt = child.UpdatedAt
-		}
-		allAssignedIssues[parentID] = parent
-	}
-
-	// Now filter out issues whose parents are also in the assigned list
-	// Process top-level issues in order to maintain consistent ordering
-	var filteredIssues []Issue
-
-	// First, add all top-level issues that don't have parents in the assigned list
-	for _, issueID := range f.topLevelIssues {
-		if issue, exists := allAssignedIssues[issueID]; exists {
-			parentID, hasParent := issueParents[issueID]
-
-			// If this issue has no parent, or its parent is not in our assigned issues,
-			// then include it as a top-level issue
-			if !hasParent || allAssignedIssues[parentID].ID == "" {
-				// Set HasChildren based on whether this issue has children
-				_, hasChildren := f.childrenMap[issueID]
-				issue.HasChildren = hasChildren
-				issue.Depth = 0
-				issue.Expanded = false
-				issue.Parent = nil // Explicitly set parent to nil for root issues
-				filteredIssues = append(filteredIssues, issue)
-			}
-		}
-	}
-
-	// Then, check if any child issues should be promoted to top-level
-	// (when their parents are not assigned)
-	for parentID, childIDs := range f.childrenMap {
-		if _, parentAssigned := allAssignedIssues[parentID]; !parentAssigned {
-			// Parent not assigned, promote children to top-level
-			for _, childID := range childIDs {
-				if child, exists := allAssignedIssues[childID]; exists {
-					_, hasChildren := f.childrenMap[childID]
-					child.HasChildren = hasChildren
-					child.Depth = 0
-					child.Expanded = false
-					child.Parent = nil
-					filteredIssues = append(filteredIssues, child)
-				}
-			}
-		}
-	}
-
-	return filteredIssues, nil
-}
-
-// GetIssueChildren returns children for a given issue ID
-func (f *FakeLinearClient) GetIssueChildren(issueID string) ([]Issue, error) {
-	if err, exists := f.childFetchErrs[issueID]; exists {
-		return nil, err
-	}
-
-	childIDs, exists := f.childrenMap[issueID]
-	if !exists {
-		return []Issue{}, nil
-	}
-
-	children := make([]Issue, 0, len(childIDs))
-	for _, childID := range childIDs {
-		if child, exists := f.issues[childID]; exists {
-			// Set HasChildren for child based on whether it has children
-			_, hasChildren := f.childrenMap[childID]
-			child.HasChildren = hasChildren
-			child.Expanded = false
-			children = append(children, child)
-		}
-	}
-
-	return children, nil
-}
-
-// CreateSubtask creates a new subtask under the given parent issue
-func (f *FakeLinearClient) CreateSubtask(parentID, title string) (*Issue, error) {
-	// Generate a fake ID for the new subtask
-	newID := fmt.Sprintf("fake-subtask-%d", len(f.issues))
-
-	// Find parent to get identifier prefix
-	parent, exists := f.issues[parentID]
-	if !exists {
-		return nil, fmt.Errorf("parent issue not found: %s", parentID)
-	}
-
-	// Generate identifier based on parent
-	var identifier string
-	if parent.Identifier != "" {
-		// Extract prefix from parent (e.g., "SPR" from "SPR-123")
-		parts := strings.Split(parent.Identifier, "-")
-		if len(parts) > 0 {
-			identifier = fmt.Sprintf("%s-%d", parts[0], len(f.issues)+1000)
-		} else {
-			identifier = fmt.Sprintf("SUB-%d", len(f.issues))
-		}
-	} else {
-		identifier = fmt.Sprintf("SUB-%d", len(f.issues))
-	}
-
-	// Create the new subtask
-	subtask := Issue{
-		ID:          newID,
-		Title:       title,
-		Identifier:  identifier,
-		Assignee:    f.currentUser,
-		HasChildren: false,
-		Expanded:    false,
-		Depth:       parent.Depth + 1,
-		Children:    []Issue{},
-	}
-
-	// Add it to our data store
-	f.AddIssue(subtask, parentID)
-
-	return &subtask, nil
-}
-
-// TestConnection simulates a connection test
-func (f *FakeLinearClient) TestConnection() error {
-	return nil // Always succeeds for fake client
-}
-
-// UnassignIssue removes the assignee from an issue in memory.
-func (f *FakeLinearClient) UnassignIssue(issueID string) error {
-	issue, exists := f.issues[issueID]
-	if !exists {
-		return fmt.Errorf("issue not found: %s", issueID)
-	}
-	issue.Assignee = nil
-	f.issues[issueID] = issue
-	return nil
-}
-
-// AssignIssueToMe assigns an issue to the fake current user.
-func (f *FakeLinearClient) AssignIssueToMe(issueID string) error {
-	issue, exists := f.issues[issueID]
-	if !exists {
-		return fmt.Errorf("issue not found: %s", issueID)
-	}
-	issue.Assignee = f.currentUser
-	f.issues[issueID] = issue
-	return nil
-}
-
-// MarkIssueDone updates an issue state to done in memory.
-func (f *FakeLinearClient) MarkIssueDone(issueID string) error {
-	issue, exists := f.issues[issueID]
-	if !exists {
-		return fmt.Errorf("issue not found: %s", issueID)
-	}
-	issue.State = State{
-		ID:   issue.State.ID,
-		Name: "Done",
-		Type: "completed",
-	}
-	f.issues[issueID] = issue
-	return nil
 }
 
 // NextVisible returns the next visible issue in the tree traversal order

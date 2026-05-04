@@ -1,0 +1,104 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+scalar DateTime
+
+type Query {
+  viewer: User!
+  issues(filter: IssueFilter, orderBy: IssueOrderBy): IssueConnection!
+  issue(id: String!): Issue
+}
+
+type Mutation {
+  issueCreate(input: IssueCreateInput!): IssueCreatePayload!
+  issueUpdate(id: String!, input: IssueUpdateInput!): IssueUpdatePayload!
+}
+
+type IssueConnection {
+  nodes: [Issue!]!
+}
+
+type StateConnection {
+  nodes: [State!]!
+}
+
+type Issue {
+  id: String!
+  title: String!
+  description: String
+  identifier: String!
+  url: String!
+  priority: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  parent: Issue
+  state: State!
+  assignee: User
+  children: IssueConnection!
+  team: Team!
+}
+
+type Team {
+  id: String!
+  states(filter: StateFilter): StateConnection!
+}
+
+type User {
+  id: String!
+  name: String!
+  displayName: String!
+  email: String!
+}
+
+type State {
+  id: String!
+  name: String!
+  type: String!
+}
+
+type IssueCreatePayload {
+  success: Boolean!
+  issue: Issue!
+}
+
+type IssueUpdatePayload {
+  success: Boolean!
+}
+
+enum IssueOrderBy {
+  updatedAt
+}
+
+input IssueFilter {
+  assignee: IssueAssigneeFilter
+}
+
+input IssueAssigneeFilter {
+  isMe: BooleanComparator
+}
+
+input BooleanComparator {
+  eq: Boolean
+}
+
+input StateFilter {
+  type: StringComparator
+}
+
+input StringComparator {
+  eq: String
+}
+
+input IssueCreateInput {
+  title: String!
+  parentId: String
+  teamId: String!
+  assigneeId: String
+}
+
+input IssueUpdateInput {
+  assigneeId: String
+  stateId: String
+}
