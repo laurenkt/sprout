@@ -52,3 +52,9 @@ Feature: Work queue loading status
     Then the UI should display "Error:"
     And the UI should display "gh pr list --head feature-search --state all --json state --limit 1"
     And the UI should not show work queue rows
+
+  Scenario: Cached merged worktree skips GitHub lookup
+    Given worktree "feature-search" is cached as merged at its current commit
+    When I start the Sprout TUI
+    Then the UI should not display "gh pr list --head feature-search --state all --json state --limit 1"
+    And the UI should not display "feature-search"

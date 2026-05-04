@@ -3,7 +3,9 @@ package github
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -15,6 +17,7 @@ type PR struct {
 type Client struct {
 	repoRoot string
 	runner   commandRunner
+	cache    *PRStatusCache
 }
 
 type commandRunner func(dir string, name string, args ...string) ([]byte, error)
@@ -23,6 +26,7 @@ func NewClient(repoRoot string) *Client {
 	return &Client{
 		repoRoot: repoRoot,
 		runner:   runCommandOutput,
+		cache:    NewPRStatusCache(repoRoot),
 	}
 }
 
@@ -33,7 +37,14 @@ func NewClientWithRunner(repoRoot string, runner commandRunner) *Client {
 	return &Client{
 		repoRoot: repoRoot,
 		runner:   runner,
+		cache:    NewPRStatusCache(repoRoot),
 	}
+}
+
+func NewClientWithRunnerAndCachePath(repoRoot string, runner commandRunner, cachePath string) *Client {
+	client := NewClientWithRunner(repoRoot, runner)
+	client.cache = NewPRStatusCacheWithPath(repoRoot, cachePath)
+	return client
 }
 
 func runCommandOutput(dir string, name string, args ...string) ([]byte, error) {
@@ -136,6 +147,16 @@ func PRStatusCommand(branchName string) string {
 	return fmt.Sprintf("gh pr list --head %s --state all --json state --limit 1", branchName)
 }
 
+func (c *Client) CachedMergedPRStatus(branchName, commit string) bool {
+	return c.cache != nil && c.cache.IsMerged(branchName, commit)
+}
+
+func (c *Client) RememberMergedPRStatus(branchName, commit string) {
+	if c.cache != nil {
+		c.cache.RememberMerged(branchName, commit)
+	}
+}
+
 func (c *Client) GetPRStatusFromGH(branchName string) (string, error) {
 	if branchName == "" || branchName == "master" || branchName == "main" {
 		return "-", nil
@@ -165,4 +186,87 @@ func (c *Client) GetPRStatusFromGH(branchName string) (string, error) {
 	default:
 		return prs[0].State, nil
 	}
+}
+
+type PRStatusCache struct {
+	repoRoot string
+	path     string
+}
+
+type prStatusCacheFile struct {
+	Repos map[string]map[string]string `json:"repos"`
+}
+
+func NewPRStatusCache(repoRoot string) *PRStatusCache {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return nil
+	}
+	return NewPRStatusCacheWithPath(repoRoot, filepath.Join(cacheDir, "sprout", "pr-status-cache.json"))
+}
+
+func NewPRStatusCacheWithPath(repoRoot, path string) *PRStatusCache {
+	if path == "" {
+		return nil
+	}
+	return &PRStatusCache{
+		repoRoot: repoRoot,
+		path:     path,
+	}
+}
+
+func (c *PRStatusCache) IsMerged(branchName, commit string) bool {
+	if c == nil || branchName == "" || commit == "" {
+		return false
+	}
+	cacheFile, err := c.load()
+	if err != nil {
+		return false
+	}
+	return cacheFile.Repos[c.repoRoot][branchName] == commit
+}
+
+func (c *PRStatusCache) RememberMerged(branchName, commit string) {
+	if c == nil || branchName == "" || commit == "" {
+		return
+	}
+
+	cacheFile, err := c.load()
+	if err != nil {
+		cacheFile = prStatusCacheFile{Repos: make(map[string]map[string]string)}
+	}
+	if cacheFile.Repos == nil {
+		cacheFile.Repos = make(map[string]map[string]string)
+	}
+	if cacheFile.Repos[c.repoRoot] == nil {
+		cacheFile.Repos[c.repoRoot] = make(map[string]string)
+	}
+	cacheFile.Repos[c.repoRoot][branchName] = commit
+	_ = c.save(cacheFile)
+}
+
+func (c *PRStatusCache) load() (prStatusCacheFile, error) {
+	cacheFile := prStatusCacheFile{Repos: make(map[string]map[string]string)}
+	data, err := os.ReadFile(c.path)
+	if err != nil {
+		return cacheFile, err
+	}
+	if err := json.Unmarshal(data, &cacheFile); err != nil {
+		return cacheFile, err
+	}
+	if cacheFile.Repos == nil {
+		cacheFile.Repos = make(map[string]map[string]string)
+	}
+	return cacheFile, nil
+}
+
+func (c *PRStatusCache) save(cacheFile prStatusCacheFile) error {
+	if err := os.MkdirAll(filepath.Dir(c.path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cacheFile, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(c.path, data, 0644)
 }
