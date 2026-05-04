@@ -16,13 +16,14 @@ import (
 	"sprout/pkg/config"
 	"sprout/pkg/git"
 	"sprout/pkg/linear"
+	"sprout/pkg/linear/lineartest"
 )
 
 // TUITestContext holds the state for our Gherkin tests
 type TUITestContext struct {
 	model               model
 	testModel           *teatest.TestModel
-	fakeClient          *linear.FakeLinearClient
+	fakeLinear          *lineartest.Server
 	fakeWorktreeManager *testWorktreeManager
 	defaultWorktreeCmd  string
 	resumeWorktreeCmd   string
@@ -39,7 +40,7 @@ type TUITestContext struct {
 // NewTUITestContext creates a new test context
 func NewTUITestContext(t *testing.T) *TUITestContext {
 	return &TUITestContext{
-		fakeClient:          linear.NewFakeLinearClient(),
+		fakeLinear:          lineartest.NewServer(t),
 		fakeWorktreeManager: &testWorktreeManager{},
 		defaultWorktreeCmd:  "",
 		resumeWorktreeCmd:   "",
@@ -193,9 +194,9 @@ func StripANSI(text string) string {
 
 func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table) error {
 	// Clear any existing data
-	tc.fakeClient = linear.NewFakeLinearClient()
+	tc.fakeLinear = lineartest.NewServer(tc.t)
 
-	// Parse table and populate fake client
+	// Parse table and populate fake Linear GraphQL server
 	for i, row := range issueTable.Rows {
 		if i == 0 { // Skip header row
 			continue
@@ -237,15 +238,15 @@ func (tc *TUITestContext) theFollowingLinearIssuesExist(issueTable *godog.Table)
 			Identifier:  identifier,
 			Title:       title,
 			State:       status,
-			HasChildren: false, // Will be set by FakeLinearClient
+			HasChildren: false, // Will be set by fake Linear GraphQL server
 			Expanded:    false,
 			Depth:       0,                // Will be set by UI based on hierarchy
-			Children:    []linear.Issue{}, // Not used in fake client
+			Children:    []linear.Issue{}, // Not used by the table loader
 			UpdatedAt:   updatedAt,
 		}
 
-		// Add to fake client (it handles parent-child relationships)
-		tc.fakeClient.AddIssue(issue, parentID)
+		// Add to fake Linear GraphQL server (it handles parent-child relationships)
+		tc.fakeLinear.AddIssue(issue, parentID)
 	}
 
 	return nil
@@ -281,7 +282,7 @@ func (tc *TUITestContext) theFollowingWorktreesExist(worktreeTable *godog.Table)
 }
 
 func (tc *TUITestContext) fetchingChildrenForFails(identifier string) error {
-	tc.fakeClient.FailChildFetch(identifier, fmt.Errorf("failed to fetch children for %s", identifier))
+	tc.fakeLinear.FailChildFetch(identifier, fmt.Errorf("failed to fetch children for %s", identifier))
 	return nil
 }
 
@@ -291,7 +292,7 @@ func (tc *TUITestContext) iStartTheSproutTUI() error {
 
 	// Create test model with fake client and worktree manager stub
 	var err error
-	tc.model, err = NewTUIWithDependenciesAndConfig(tc.fakeWorktreeManager, tc.fakeClient, &config.Config{
+	tc.model, err = NewTUIWithDependenciesAndConfig(tc.fakeWorktreeManager, tc.fakeLinear.Client(), &config.Config{
 		DefaultCommand: tc.defaultWorktreeCmd,
 		ResumeCommand:  tc.resumeWorktreeCmd,
 	})
@@ -912,7 +913,7 @@ func InitializeScenario(ctx *godog.ScenarioContext, t *testing.T) {
 
 	// Setup a test context for each scenario
 	ctx.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
-		tc.fakeClient = linear.NewFakeLinearClient()
+		tc.fakeLinear = lineartest.NewServer(t)
 		tc.fakeWorktreeManager = &testWorktreeManager{}
 		tc.defaultWorktreeCmd = ""
 		tc.resumeWorktreeCmd = ""
