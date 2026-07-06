@@ -352,12 +352,18 @@ func (wm *WorktreeManager) applyTUIWorktreePRStatuses(worktrees []Worktree, prog
 		if !shouldCheckPRStatusForTUI(worktrees[i]) {
 			continue
 		}
-		if wm.githubClient.CachedMergedPRStatus(worktrees[i].Branch, worktrees[i].Commit) {
-			worktrees[i].PRStatus = "Merged"
-			worktrees[i].Merged = true
-			continue
+		status, state := wm.githubClient.CachedPRStatus(worktrees[i].Branch, worktrees[i].Commit)
+		switch state {
+		case github.CacheFresh:
+			applyPRStatus(&worktrees[i], status)
+		case github.CacheStale:
+			// Serve the cached value now to keep the hot path fast, then
+			// refresh in the background so the next run reads fresh data.
+			applyPRStatus(&worktrees[i], status)
+			wm.refreshPRStatusInBackground(worktrees[i].Branch, worktrees[i].Commit)
+		default:
+			jobs = append(jobs, prStatusJob{index: i})
 		}
-		jobs = append(jobs, prStatusJob{index: i})
 	}
 	if len(jobs) == 0 {
 		return nil
@@ -397,21 +403,35 @@ func (wm *WorktreeManager) applyTUIWorktreePRStatuses(worktrees []Worktree, prog
 
 	var firstErr error
 	for result := range resultCh {
-		if result.err != nil && firstErr == nil {
-			firstErr = result.err
-			continue
-		}
 		if result.err != nil {
+			if firstErr == nil {
+				firstErr = result.err
+			}
 			continue
 		}
-		worktrees[result.index].PRStatus = result.status
-		if result.status == "Merged" {
-			worktrees[result.index].Merged = true
-			wm.githubClient.RememberMergedPRStatus(worktrees[result.index].Branch, worktrees[result.index].Commit)
-		}
+		applyPRStatus(&worktrees[result.index], result.status)
+		wm.githubClient.RememberPRStatus(worktrees[result.index].Branch, worktrees[result.index].Commit, result.status)
 	}
 
 	return firstErr
+}
+
+// applyPRStatus records a resolved PR status on a worktree.
+func applyPRStatus(wt *Worktree, status string) {
+	wt.PRStatus = status
+	wt.Merged = status == "Merged"
+}
+
+// refreshPRStatusInBackground re-checks a branch's PR status without blocking
+// the caller and updates the cache so the next run reads fresh data.
+func (wm *WorktreeManager) refreshPRStatusInBackground(branch, commit string) {
+	go func() {
+		status, err := wm.githubClient.GetPRStatusFromGH(branch)
+		if err != nil {
+			return
+		}
+		wm.githubClient.RememberPRStatus(branch, commit, status)
+	}()
 }
 
 func reportProgress(progress func(string), status string) {

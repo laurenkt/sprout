@@ -3,10 +3,13 @@ package github
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 type PR struct {
@@ -42,8 +45,12 @@ func NewClientWithRunner(repoRoot string, runner commandRunner) *Client {
 }
 
 func NewClientWithRunnerAndCachePath(repoRoot string, runner commandRunner, cachePath string) *Client {
+	return NewClientWithRunnerCachePathTTL(repoRoot, runner, cachePath, defaultPRStatusCacheTTL, defaultPRStatusCacheJitter)
+}
+
+func NewClientWithRunnerCachePathTTL(repoRoot string, runner commandRunner, cachePath string, ttl, jitter time.Duration) *Client {
 	client := NewClientWithRunner(repoRoot, runner)
-	client.cache = NewPRStatusCacheWithPath(repoRoot, cachePath)
+	client.cache = NewPRStatusCacheWithOptions(repoRoot, cachePath, ttl, jitter)
 	return client
 }
 
@@ -147,13 +154,20 @@ func PRStatusCommand(branchName string) string {
 	return fmt.Sprintf("gh pr list --head %s --state all --json state --limit 1", branchName)
 }
 
-func (c *Client) CachedMergedPRStatus(branchName, commit string) bool {
-	return c.cache != nil && c.cache.IsMerged(branchName, commit)
+// CachedPRStatus returns the cached PR status for a branch at a commit along
+// with its freshness so callers can decide whether to serve it directly, serve
+// it and refresh asynchronously, or fetch synchronously.
+func (c *Client) CachedPRStatus(branchName, commit string) (string, CacheState) {
+	if c.cache == nil {
+		return "", CacheMiss
+	}
+	return c.cache.Lookup(branchName, commit)
 }
 
-func (c *Client) RememberMergedPRStatus(branchName, commit string) {
+// RememberPRStatus stores the result of a PR status check for later runs.
+func (c *Client) RememberPRStatus(branchName, commit, status string) {
 	if c.cache != nil {
-		c.cache.RememberMerged(branchName, commit)
+		c.cache.Remember(branchName, commit, status)
 	}
 }
 
@@ -188,13 +202,42 @@ func (c *Client) GetPRStatusFromGH(branchName string) (string, error) {
 	}
 }
 
+// CacheState describes how usable a cached PR status is.
+type CacheState int
+
+const (
+	// CacheMiss means there is no usable entry (absent, for a different
+	// commit, or empty); the caller must fetch synchronously.
+	CacheMiss CacheState = iota
+	// CacheFresh means the entry is within its TTL and can be served without
+	// any network call.
+	CacheFresh
+	// CacheStale means the entry has expired; it can still be shown, but the
+	// caller should refresh it asynchronously so the next run is fresh.
+	CacheStale
+)
+
+const (
+	defaultPRStatusCacheTTL    = 10 * time.Minute
+	defaultPRStatusCacheJitter = 5 * time.Minute
+)
+
 type PRStatusCache struct {
 	repoRoot string
 	path     string
+	ttl      time.Duration
+	jitter   time.Duration
+	mu       sync.Mutex
+}
+
+type prStatusEntry struct {
+	Status    string    `json:"status"`
+	Commit    string    `json:"commit"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 type prStatusCacheFile struct {
-	Repos map[string]map[string]string `json:"repos"`
+	Repos map[string]map[string]prStatusEntry `json:"repos"`
 }
 
 func NewPRStatusCache(repoRoot string) *PRStatusCache {
@@ -206,47 +249,83 @@ func NewPRStatusCache(repoRoot string) *PRStatusCache {
 }
 
 func NewPRStatusCacheWithPath(repoRoot, path string) *PRStatusCache {
+	return NewPRStatusCacheWithOptions(repoRoot, path, defaultPRStatusCacheTTL, defaultPRStatusCacheJitter)
+}
+
+func NewPRStatusCacheWithOptions(repoRoot, path string, ttl, jitter time.Duration) *PRStatusCache {
 	if path == "" {
 		return nil
 	}
 	return &PRStatusCache{
 		repoRoot: repoRoot,
 		path:     path,
+		ttl:      ttl,
+		jitter:   jitter,
 	}
 }
 
-func (c *PRStatusCache) IsMerged(branchName, commit string) bool {
+// Lookup returns the cached PR status for a branch at a given commit along with
+// its freshness. Entries recorded for a different commit are treated as a miss
+// so that pushing new work always re-checks the PR.
+func (c *PRStatusCache) Lookup(branchName, commit string) (string, CacheState) {
 	if c == nil || branchName == "" || commit == "" {
-		return false
+		return "", CacheMiss
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	cacheFile, err := c.load()
 	if err != nil {
-		return false
+		return "", CacheMiss
 	}
-	return cacheFile.Repos[c.repoRoot][branchName] == commit
+	entry, ok := cacheFile.Repos[c.repoRoot][branchName]
+	if !ok || entry.Commit != commit || entry.Status == "" {
+		return "", CacheMiss
+	}
+	if time.Now().After(entry.ExpiresAt) {
+		return entry.Status, CacheStale
+	}
+	return entry.Status, CacheFresh
 }
 
-func (c *PRStatusCache) RememberMerged(branchName, commit string) {
-	if c == nil || branchName == "" || commit == "" {
+// Remember stores the PR status for a branch at a commit, stamping it with a
+// jittered expiry so entries written together do not all go stale on the same
+// later run.
+func (c *PRStatusCache) Remember(branchName, commit, status string) {
+	if c == nil || branchName == "" || commit == "" || status == "" {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	cacheFile, err := c.load()
 	if err != nil {
-		cacheFile = prStatusCacheFile{Repos: make(map[string]map[string]string)}
+		cacheFile = prStatusCacheFile{Repos: make(map[string]map[string]prStatusEntry)}
 	}
 	if cacheFile.Repos == nil {
-		cacheFile.Repos = make(map[string]map[string]string)
+		cacheFile.Repos = make(map[string]map[string]prStatusEntry)
 	}
 	if cacheFile.Repos[c.repoRoot] == nil {
-		cacheFile.Repos[c.repoRoot] = make(map[string]string)
+		cacheFile.Repos[c.repoRoot] = make(map[string]prStatusEntry)
 	}
-	cacheFile.Repos[c.repoRoot][branchName] = commit
+	cacheFile.Repos[c.repoRoot][branchName] = prStatusEntry{
+		Status:    status,
+		Commit:    commit,
+		ExpiresAt: time.Now().Add(c.entryLifetime()),
+	}
 	_ = c.save(cacheFile)
 }
 
+// entryLifetime is the base TTL plus a random jitter in [0, jitter).
+func (c *PRStatusCache) entryLifetime() time.Duration {
+	if c.jitter <= 0 {
+		return c.ttl
+	}
+	return c.ttl + time.Duration(rand.Int63n(int64(c.jitter)))
+}
+
 func (c *PRStatusCache) load() (prStatusCacheFile, error) {
-	cacheFile := prStatusCacheFile{Repos: make(map[string]map[string]string)}
+	cacheFile := prStatusCacheFile{Repos: make(map[string]map[string]prStatusEntry)}
 	data, err := os.ReadFile(c.path)
 	if err != nil {
 		return cacheFile, err
@@ -255,7 +334,7 @@ func (c *PRStatusCache) load() (prStatusCacheFile, error) {
 		return cacheFile, err
 	}
 	if cacheFile.Repos == nil {
-		cacheFile.Repos = make(map[string]map[string]string)
+		cacheFile.Repos = make(map[string]map[string]prStatusEntry)
 	}
 	return cacheFile, nil
 }
