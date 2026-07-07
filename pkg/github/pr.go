@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,7 +29,7 @@ func NewClient(repoRoot string) *Client {
 	return &Client{
 		repoRoot: repoRoot,
 		runner:   runCommandOutput,
-		cache:    NewPRStatusCache(repoRoot),
+		cache:    NewPRStatusCache(repoIdentity(repoRoot)),
 	}
 }
 
@@ -39,7 +40,7 @@ func NewClientWithRunner(repoRoot string, runner commandRunner) *Client {
 	return &Client{
 		repoRoot: repoRoot,
 		runner:   runner,
-		cache:    NewPRStatusCache(repoRoot),
+		cache:    NewPRStatusCache(repoIdentity(repoRoot)),
 	}
 }
 
@@ -49,7 +50,7 @@ func NewClientWithRunnerAndCachePath(repoRoot string, runner commandRunner, cach
 
 func NewClientWithRunnerCachePathTTL(repoRoot string, runner commandRunner, cachePath string, ttl, jitter time.Duration) *Client {
 	client := NewClientWithRunner(repoRoot, runner)
-	client.cache = NewPRStatusCacheWithOptions(repoRoot, cachePath, ttl, jitter)
+	client.cache = NewPRStatusCacheWithOptions(repoIdentity(repoRoot), cachePath, ttl, jitter)
 	return client
 }
 
@@ -57,6 +58,31 @@ func runCommandOutput(dir string, name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	return cmd.Output()
+}
+
+// repoIdentity returns a stable cache key for a repository that is the same for
+// its main checkout and every linked worktree. The git common directory (e.g.
+// /path/to/repo/.git) is shared across all worktrees, whereas the working-tree
+// root differs per worktree — keying on the latter would give each worktree its
+// own cache. Falls back to repoRoot when the git dir cannot be resolved.
+func repoIdentity(repoRoot string) string {
+	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
+	cmd.Dir = repoRoot
+	output, err := cmd.Output()
+	if err != nil {
+		return repoRoot
+	}
+	dir := strings.TrimSpace(string(output))
+	if dir == "" {
+		return repoRoot
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(repoRoot, dir)
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
 }
 
 // GetPRStatus resolves a branch's PR status via GitHub. GitHub is the single

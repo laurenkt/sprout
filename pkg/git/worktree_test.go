@@ -539,6 +539,26 @@ func TestListWorktreesForTUISkipsGitHubLookupForFreshCachedStatus(t *testing.T) 
 	t.Fatalf("feature-search worktree was not returned: %#v", worktrees)
 }
 
+func TestPRStatusCacheSharedAcrossWorktrees(t *testing.T) {
+	tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-share")
+	defer cleanup()
+	worktreePath := filepath.Join(filepath.Dir(tempDir), "feature-share")
+
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	commit := currentCommit(t, tempDir, "feature-share")
+
+	// Record the status via a client rooted in the main checkout.
+	mainClient := github.NewClientWithRunnerAndCachePath(tempDir, nil, cachePath)
+	mainClient.RememberPRStatus("feature-share", commit, "Merged")
+
+	// A client rooted in the linked worktree must see the same cache entry.
+	worktreeClient := github.NewClientWithRunnerAndCachePath(worktreePath, nil, cachePath)
+	status, state := worktreeClient.CachedPRStatus("feature-share", commit)
+	if state != github.CacheFresh || status != "Merged" {
+		t.Fatalf("expected shared cache hit from worktree, got status %q state %v", status, state)
+	}
+}
+
 func TestListWorktreesForTUIServesStaleCacheAndRefreshesAsync(t *testing.T) {
 	tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-search")
 	defer cleanup()
