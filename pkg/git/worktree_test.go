@@ -390,10 +390,10 @@ func TestListWorktreesForTUIUsesGitHubMergedStateForSquashAndDeletedRemoteBranch
 	commands := []string{}
 	wm := &WorktreeManager{
 		repoRoot: tempDir,
-		githubClient: github.NewClientWithRunner(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+		githubClient: github.NewClientWithRunnerAndCachePath(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
 			commands = append(commands, name+" "+strings.Join(args, " "))
 			return []byte(`[{"state":"MERGED"}]`), nil
-		}),
+		}, filepath.Join(t.TempDir(), "cache.json")),
 	}
 
 	worktrees, err := wm.ListWorktreesForTUIWithProgress(nil)
@@ -434,9 +434,9 @@ func TestListWorktreesForTUIKeepsOpenClosedAndNoPRActive(t *testing.T) {
 
 			wm := &WorktreeManager{
 				repoRoot: tempDir,
-				githubClient: github.NewClientWithRunner(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+				githubClient: github.NewClientWithRunnerAndCachePath(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
 					return []byte(tc.output), nil
-				}),
+				}, filepath.Join(t.TempDir(), "cache.json")),
 			}
 
 			worktrees, err := wm.ListWorktreesForTUIWithProgress(nil)
@@ -458,9 +458,9 @@ func TestListWorktreesForTUIGitHubFailureIncludesExactCommand(t *testing.T) {
 
 	wm := &WorktreeManager{
 		repoRoot: tempDir,
-		githubClient: github.NewClientWithRunner(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+		githubClient: github.NewClientWithRunnerAndCachePath(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
 			return nil, errors.New("boom")
-		}),
+		}, filepath.Join(t.TempDir(), "cache.json")),
 	}
 
 	_, err := wm.ListWorktreesForTUIWithProgress(nil)
@@ -504,7 +504,7 @@ func TestListWorktreesForTUIChecksGitHubStatusesInParallel(t *testing.T) {
 	}
 }
 
-func TestListWorktreesForTUISkipsGitHubLookupForCachedMergedBranch(t *testing.T) {
+func TestListWorktreesForTUISkipsGitHubLookupForFreshCachedStatus(t *testing.T) {
 	tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-search")
 	defer cleanup()
 
@@ -518,25 +518,99 @@ func TestListWorktreesForTUISkipsGitHubLookupForCachedMergedBranch(t *testing.T)
 		}, cachePath),
 	}
 	commit := currentCommit(t, tempDir, "feature-search")
-	wm.githubClient.RememberMergedPRStatus("feature-search", commit)
+	wm.githubClient.RememberPRStatus("feature-search", commit, "Merged")
 
 	worktrees, err := wm.ListWorktreesForTUIWithProgress(nil)
 	if err != nil {
 		t.Fatalf("ListWorktreesForTUIWithProgress returned error: %v", err)
 	}
 	if calls != 0 {
-		t.Fatalf("expected no GitHub calls for cached merged branch, got %d", calls)
+		t.Fatalf("expected no GitHub calls for fresh cached branch, got %d", calls)
 	}
 
 	for _, wt := range worktrees {
 		if wt.Branch == "feature-search" {
 			if !wt.Merged || wt.PRStatus != "Merged" {
-				t.Fatalf("expected cached merged branch to be marked merged, got %#v", wt)
+				t.Fatalf("expected fresh cached status to be served, got %#v", wt)
 			}
 			return
 		}
 	}
 	t.Fatalf("feature-search worktree was not returned: %#v", worktrees)
+}
+
+func TestPRStatusCacheSharedAcrossWorktrees(t *testing.T) {
+	tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-share")
+	defer cleanup()
+	worktreePath := filepath.Join(filepath.Dir(tempDir), "feature-share")
+
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	commit := currentCommit(t, tempDir, "feature-share")
+
+	// Record the status via a client rooted in the main checkout.
+	mainClient := github.NewClientWithRunnerAndCachePath(tempDir, nil, cachePath)
+	mainClient.RememberPRStatus("feature-share", commit, "Merged")
+
+	// A client rooted in the linked worktree must see the same cache entry.
+	worktreeClient := github.NewClientWithRunnerAndCachePath(worktreePath, nil, cachePath)
+	status, state := worktreeClient.CachedPRStatus("feature-share", commit)
+	if state != github.CacheFresh || status != "Merged" {
+		t.Fatalf("expected shared cache hit from worktree, got status %q state %v", status, state)
+	}
+}
+
+func TestListWorktreesForTUIServesStaleCacheAndRefreshesAsync(t *testing.T) {
+	tempDir, cleanup := setupRepoWithFeatureWorktree(t, "feature-search")
+	defer cleanup()
+
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	var calls int32
+	wm := &WorktreeManager{
+		repoRoot: tempDir,
+		// A zero TTL/jitter makes every stored entry immediately stale.
+		githubClient: github.NewClientWithRunnerCachePathTTL(tempDir, func(dir string, name string, args ...string) ([]byte, error) {
+			atomic.AddInt32(&calls, 1)
+			return []byte(`[{"state":"MERGED"}]`), nil
+		}, cachePath, 0, 0),
+	}
+	commit := currentCommit(t, tempDir, "feature-search")
+	wm.githubClient.RememberPRStatus("feature-search", commit, "Open")
+
+	worktrees, err := wm.ListWorktreesForTUIWithProgress(nil)
+	if err != nil {
+		t.Fatalf("ListWorktreesForTUIWithProgress returned error: %v", err)
+	}
+
+	// The stale cached value is served immediately without a blocking lookup.
+	var found *Worktree
+	for i := range worktrees {
+		if worktrees[i].Branch == "feature-search" {
+			found = &worktrees[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("feature-search worktree was not returned: %#v", worktrees)
+	}
+	if found.PRStatus != "Open" || found.Merged {
+		t.Fatalf("expected stale cached status to be served, got %#v", *found)
+	}
+
+	// The background refresh updates the cache so the next run reads fresh data.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status, _ := wm.githubClient.CachedPRStatus("feature-search", commit)
+		if status == "Merged" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected background refresh to update cache to Merged")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("expected exactly one background GitHub call, got %d", got)
+	}
 }
 
 func setupRepoWithFeatureWorktree(t *testing.T, branch string) (string, func()) {
